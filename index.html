@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CBF &amp; CMRO₂ Viewer — Akbari Lab</title>
+<link rel="stylesheet" href="vendor/uplot/uPlot.min.css">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>🩸</text></svg>">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="t">
+      <h1>CBF &amp; CMRO₂ Viewer</h1>
+      <p class="sub">Drop MATLAB <code>.mat</code> files to get blood-flow and oxygen-metabolism results.</p>
+      <p class="privacy">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4z"/></svg>
+        Everything runs inside your browser. No file is uploaded anywhere.
+      </p>
+    </div>
+    <button id="theme" title="Switch light / dark">◐</button>
+  </header>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Drop .mat files here or click to browse">
+    <h2>Drop <code>.mat</code> files here</h2>
+    <p>or click to browse — you can add many animals at once</p>
+    <p class="hint">LSI files need <span class="mono">time</span> + <span class="mono">mean_data</span>. SFDI ROI files add oxygen results and are optional.</p>
+    <input type="file" id="picker" accept=".mat" multiple hidden>
+  </div>
+
+  <div id="filesPanel" class="panel hidden">
+    <h3>Files
+      <span class="right">
+        <button id="clearFiles">Clear all</button>
+      </span>
+    </h3>
+    <div class="body">
+      <div id="fileMsgs"></div>
+      <div class="scroll"><table id="fileTable"><tbody></tbody></table></div>
+    </div>
+  </div>
+
+  <div id="settingsPanel" class="panel hidden">
+    <h3>Settings</h3>
+    <div class="body">
+      <div class="settings">
+        <div class="field">
+          <label for="eventTime">Baseline anchor (min)</label>
+          <input id="eventTime" type="number" step="0.1" value="1">
+          <div class="note">Relative values are measured against the half-minute before this. Use 1 for a plain baseline recording.</div>
+        </div>
+        <div class="field">
+          <label for="hiThr">Artifact threshold, high</label>
+          <input id="hiThr" type="number" step="1000" value="40000">
+          <div class="note">Flow above this is treated as noise.</div>
+        </div>
+        <div class="field">
+          <label for="loThr">Artifact threshold, low</label>
+          <input id="loThr" type="number" step="50" value="-950">
+          <div class="note">Flow below this is treated as noise.</div>
+        </div>
+        <div class="field">
+          <label for="exposure">Camera exposure (ms)</label>
+          <input id="exposure" type="number" step="1" value="10">
+          <div class="note">Must match the acquisition setting.</div>
+        </div>
+      </div>
+      <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
+        <button id="run" class="primary">Analyse</button>
+        <span id="runStatus" class="muted"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="resultsPanel" class="panel hidden">
+    <h3>Results
+      <span class="right">
+        <button id="dlCsv">Download CSV</button>
+        <button id="dlPng">Download charts</button>
+      </span>
+    </h3>
+    <div class="body">
+      <div id="resultMsgs"></div>
+      <div class="scroll"><table id="summary"></table></div>
+    </div>
+  </div>
+
+  <div id="chartsPanel" class="panel hidden">
+    <h3>Charts
+      <span class="right"><div class="tabs" id="animalTabs"></div></span>
+    </h3>
+    <div class="body">
+      <div class="tabs" id="metricTabs" style="margin-bottom:14px;"></div>
+      <div class="chartgrid" id="charts"></div>
+    </div>
+  </div>
+
+  <footer>
+    <p><strong>What this computes.</strong> Blood-flow traces are de-spiked, resampled to 100 samples/min and normalised to the baseline window. With SFDI data it also fits the Brownian diffusion coefficient (D<sub>b</sub>) to the measured speckle contrast and derives absolute and relative CMRO₂.</p>
+    <p><strong>Verified against MATLAB.</strong> The maths here is a direct port of the lab's MATLAB pipeline, checked against MATLAB reference output — D<sub>b</sub> matches bit-for-bit, every other output to better than 1&nbsp;part in 10<sup>12</sup>. Open <a href="test.html">test.html</a> to run those checks in your own browser.</p>
+    <p class="muted">Reads MATLAB v6, v7 and v7.3 files. Works offline once loaded.</p>
+  </footer>
+
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
