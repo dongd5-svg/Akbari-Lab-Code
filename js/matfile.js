@@ -1,3 +1,6 @@
+(function (AK) {
+'use strict';
+
 // matfile.js — read MATLAB .mat files in the browser.
 //
 // MATLAB writes two completely different formats and lab folders usually hold
@@ -12,18 +15,15 @@
 // Struct variables are flattened to "structName.fieldName".
 
 let h5Ready = null;
-let h5 = null;
 
+// h5wasm is loaded as a plain <script>, so it is on the window as `h5wasm`.
+// Loading it this way (rather than as a module) is what lets this page work
+// when opened straight off disk, where the browser blocks module imports.
 async function ensureH5() {
-  if (h5) return h5;
-  if (!h5Ready) {
-    h5Ready = (async () => {
-      const mod = await import('../vendor/h5wasm/hdf5_hl.js');
-      await mod.ready;
-      h5 = mod;
-      return h5;
-    })();
+  if (typeof h5wasm === 'undefined') {
+    throw new Error('HDF5 reader did not load. Check that vendor/h5wasm/h5wasm.js is present.');
   }
+  if (!h5Ready) h5Ready = h5wasm.ready.then(() => h5wasm);
   return h5Ready;
 }
 
@@ -37,7 +37,7 @@ function sig(b, at) {
          b[at+4] === 0x0d && b[at+5] === 0x0a && b[at+6] === 0x1a && b[at+7] === 0x0a;
 }
 
-export async function readMat(arrayBuffer, fileName = 'file.mat') {
+async function readMat(arrayBuffer, fileName = 'file.mat') {
   const bytes = new Uint8Array(arrayBuffer);
   if (bytes.length < 128) throw new Error('File is too small to be a .mat file.');
 
@@ -253,7 +253,7 @@ async function inflate(raw) {
 
 // ---------------------------------------------------------------------------
 // Pull a named variable out, tolerating the several spellings your files use.
-export function pickVariable(vars, candidates) {
+function pickVariable(vars, candidates) {
   const keys = Object.keys(vars);
   for (const want of candidates) {
     const exact = keys.find((k) => k === want);
@@ -269,3 +269,7 @@ export function pickVariable(vars, candidates) {
   }
   return null;
 }
+
+AK.readMat = readMat;
+AK.pickVariable = pickVariable;
+})(window.AK = window.AK || {});

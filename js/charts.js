@@ -1,22 +1,23 @@
+(function (AK) {
+'use strict';
+
 // charts.js — line charts for the result traces.
 //
 // Two series maximum per chart, drawn thin, with a crosshair and a value
 // readout on hover. Colours are a colourblind-safe pair and are only ever used
 // to distinguish series, never to encode magnitude.
 
-import uPlot from '../vendor/uplot/uPlot.esm.js';
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-export function makeChart(el, { title, subtitle, x, series, yLabel }) {
+function makeChart(el, { title, subtitle, x, series, yLabel }) {
   const card = document.createElement('div');
-  card.className = 'chartcard';
+  card.className = 'plot';
   card.innerHTML =
-    `<p class="ct">${title}</p>` +
-    (subtitle ? `<p class="cs">${subtitle}</p>` : '') +
+    `<h3>${title}</h3>` +
     (series.length > 1
-      ? `<div class="legend">${series
-          .map((s) => `<span><i style="background:${s.color}"></i>${s.label}</span>`)
+      ? `<div class="key">${series
+          .map((s) => `<span><i style="background:${s.color}"></i>${s.label}&nbsp;&nbsp;</span>`)
           .join('')}</div>`
       : '');
   const holder = document.createElement('div');
@@ -87,7 +88,7 @@ function fmt(v) {
 }
 
 // Stack every visible chart into one PNG for download.
-export function chartsToPNG(charts, titleText) {
+function chartsToPNG(charts, titleText) {
   const gap = 14, pad = 18, headH = titleText ? 34 : 0;
   const cs = charts.map((c) => c.uplot.ctx.canvas);
   const w = Math.max(...cs.map((c) => c.width));
@@ -97,7 +98,7 @@ export function chartsToPNG(charts, titleText) {
   out.width = w + pad * 2;
   out.height = h + pad * 2 + headH;
   const g = out.getContext('2d');
-  g.fillStyle = css('--surface') || '#fff';
+  g.fillStyle = css('--panel') || '#fff';
   g.fillRect(0, 0, out.width, out.height);
 
   if (titleText) {
@@ -109,3 +110,7 @@ export function chartsToPNG(charts, titleText) {
   for (const c of cs) { g.drawImage(c, pad, y); y += c.height + gap; }
   return out;
 }
+
+AK.makeChart = makeChart;
+AK.chartsToPNG = chartsToPNG;
+})(window.AK = window.AK || {});

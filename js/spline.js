@@ -1,3 +1,6 @@
+(function (AK) {
+'use strict';
+
 // spline.js — cubic spline interpolation matching MATLAB's spline().
 //
 // MATLAB uses the NOT-A-KNOT end condition: the third derivative is continuous
@@ -11,7 +14,7 @@
 // Also matches MATLAB's behaviour outside the data range: it EXTRAPOLATES using
 // the end polynomials rather than returning NaN.
 
-export function splineNotAKnot(x, y) {
+function splineNotAKnot(x, y) {
   const n = x.length;
   if (n !== y.length) throw new Error(`spline: x has ${n} points, y has ${y.length}`);
   if (n < 2) throw new Error('spline: need at least 2 points');
@@ -99,7 +102,7 @@ function buildPieces(x, y, h, sig) {
 
 // Evaluate a fitted spline at query points. Extrapolates past both ends using
 // the end polynomials, as MATLAB does.
-export function splineEval(pp, xq) {
+function splineEval(pp, xq) {
   const { x, a, b, c, d } = pp;
   const nSeg = a.length;
   const out = new Float64Array(xq.length);
@@ -134,6 +137,11 @@ function findSegment(x, q, nSeg) {
 }
 
 // Convenience: fit and evaluate in one call, like MATLAB's spline(x,y,xq).
-export function spline(x, y, xq) {
+function spline(x, y, xq) {
   return splineEval(splineNotAKnot(x, y), xq);
 }
+
+AK.spline = spline;
+AK.splineNotAKnot = splineNotAKnot;
+AK.splineEval = splineEval;
+})(window.AK = window.AK || {});

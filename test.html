@@ -3,146 +3,161 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Verification — CBF &amp; CMRO₂ Viewer</title>
+<title>Numerical checks</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M1 11 L4 5 L6 9 L8 3 L11 12 L13 7 L15 9%27 fill=%27none%27 stroke=%27%230b62a4%27 stroke-width=%271.6%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>✅</text></svg>">
 <style>
-  .res { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
-  .res td { padding: 5px 10px; }
-  .ok   { color: var(--good); font-weight: 600; }
-  .bad  { color: var(--bad);  font-weight: 600; }
-  .big  { font-size: 17px; font-weight: 600; padding: 14px 16px; border-radius: 10px; margin-top: 16px; }
-  .big.pass { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 32%, transparent); }
-  .big.fail { background: color-mix(in srgb, var(--bad) 12%, transparent);  color: var(--bad);  border: 1px solid color-mix(in srgb, var(--bad) 32%, transparent); }
+  #out td { padding: 4px 9px; font-size: 12.5px; }
+  #out td:first-child { width: 46px; font-weight: 600; }
+  .p { color: var(--green); }
+  .f { color: var(--red); }
+  .s { color: var(--ink-3); }
+  .grp td { padding-top: 12px; font-weight: 600; font-size: 13px; }
+  .verdict { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line);
+             border-left-width: 3px; border-radius: 3px; font-size: 14px; }
+  .verdict.p { border-left-color: var(--green); }
+  .verdict.f { border-left-color: var(--red); }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header><div class="t">
-    <h1>Verification</h1>
-    <p class="sub">Runs this browser's maths against reference values produced by the lab's MATLAB pipeline.</p>
-  </div></header>
+  <header>
+    <h1>Numerical checks</h1>
+    <span class="note">against MATLAB reference output</span>
+  </header>
 
-  <div class="panel">
-    <h3>Why this page exists</h3>
-    <div class="body">
-      <p style="margin-top:0">The MATLAB pipeline was verified line-by-line against the lab's original scripts. This
-      web app is a <em>separate implementation</em> of the same maths, so that guarantee does not transfer
-      automatically. These checks compare it against MATLAB output on real recorded data.</p>
-      <p style="margin-bottom:0"><strong>D<sub>b</sub> must match exactly</strong> — it is chosen from a discrete grid, so
-      a single differing value would mean the fit landed on a different grid point. Continuous
-      quantities are allowed to differ in the last few bits, which is unavoidable when arithmetic
-      runs on a different platform.</p>
+  <section>
+    <h2>What is being compared</h2>
+    <div class="in">
+      <p style="margin-top:0">The MATLAB pipeline was checked line by line against the lab's original
+      scripts. This page is a separate implementation of the same maths, so that check does not carry
+      over. Below, this browser runs the same inputs MATLAB was given and the outputs are compared.</p>
+      <p style="margin-bottom:0">Db has to match exactly, because it is picked from a fixed grid of
+      candidate values. A single differing value would mean the fit chose a different grid point.
+      Continuous quantities are allowed to differ in the last few bits, which is unavoidable when
+      arithmetic runs on a different platform.</p>
     </div>
-  </div>
+  </section>
 
-  <div class="panel">
-    <h3>Results <span class="right"><span id="status" class="muted">running…</span></span></h3>
-    <div class="body">
-      <div class="scroll"><table class="res" id="out"></table></div>
+  <section>
+    <h2>Results <span class="sp"><span id="status" class="dim">running</span></span></h2>
+    <div class="in">
+      <div class="sx"><table id="out"></table></div>
       <div id="verdict"></div>
     </div>
-  </div>
+  </section>
 
-  <footer><p><a href="index.html">&larr; back to the viewer</a></p></footer>
+  <footer><p><a href="index.html">Back to the viewer</a></p></footer>
 </div>
 
-<script type="module">
-import { spline } from './js/spline.js';
-import { analyze, prepareCBF } from './js/pipeline.js';
-import { readMat, pickVariable } from './js/matfile.js';
+<script src="vendor/h5wasm/h5wasm.js"></script>
+<script src="js/spline.js"></script>
+<script src="js/pipeline.js"></script>
+<script src="js/matfile.js"></script>
+<script src="fixtures/spline_ref.js"></script>
+<script src="fixtures/pipeline_ref.js"></script>
+<script src="fixtures/despike_ref.js"></script>
+<script>
+(async function () {
+  const out = document.getElementById('out');
+  let fails = 0, total = 0;
 
-const out = document.getElementById('out');
-let fails = 0, total = 0;
-
-function row(name, pass, detail) {
-  total++; if (!pass) fails++;
-  out.insertAdjacentHTML('beforeend',
-    `<tr><td class="${pass ? 'ok' : 'bad'}">${pass ? 'PASS' : 'FAIL'}</td><td>${name}</td><td class="muted">${detail}</td></tr>`);
-}
-function section(t) {
-  out.insertAdjacentHTML('beforeend', `<tr><td colspan="3" style="padding-top:14px;font-weight:700">${t}</td></tr>`);
-}
-function cmp(name, got, ref, tol, exact) {
-  if (got.length !== ref.length) return row(name, false, `length ${got.length} vs ${ref.length}`);
-  let maxRel = 0, nDiff = 0;
-  for (let i = 0; i < ref.length; i++) {
-    if (got[i] !== ref[i]) nDiff++;
-    const r = Math.abs(got[i] - ref[i]) / Math.max(1, Math.abs(ref[i]));
-    if (r > maxRel) maxRel = r;
+  function row(name, pass, detail) {
+    total++; if (!pass) fails++;
+    out.insertAdjacentHTML('beforeend',
+      `<tr><td class="${pass ? 'p' : 'f'}">${pass ? 'pass' : 'FAIL'}</td><td>${name}</td><td class="dim">${detail}</td></tr>`);
   }
-  const pass = exact ? nDiff === 0 : maxRel <= tol;
-  row(name, pass, exact
-    ? `n=${ref.length}, differing values: ${nDiff}`
-    : `n=${ref.length}, max relative difference ${maxRel.toExponential(2)}`);
-}
+  function skip(name, detail) {
+    out.insertAdjacentHTML('beforeend',
+      `<tr><td class="s">skip</td><td>${name}</td><td class="dim">${detail}</td></tr>`);
+  }
+  function grp(t) { out.insertAdjacentHTML('beforeend', `<tr class="grp"><td colspan="3">${t}</td></tr>`); }
 
-try {
-  const [S, P, D] = await Promise.all(
-    ['spline_ref', 'pipeline_ref', 'despike_ref'].map((f) => fetch(`fixtures/${f}.json`).then((r) => r.json())));
-
-  section('Cubic spline (not-a-knot) vs MATLAB spline()');
-  cmp('12 knots, including extrapolation', spline(S.spline1.x, S.spline1.y, S.spline1.xq), S.spline1.yq, 1e-12);
-  cmp('60 unevenly spaced knots',          spline(S.spline2.x, S.spline2.y, S.spline2.xq), S.spline2.yq, 1e-12);
-
-  section('Flow preparation on real Mouse272 data');
-  const prep = prepareCBF(P.input.time, P.input.mean_data, P.eventTime);
-  cmp('trimmed raw trace',      prep.CBFraw,     P.prep.CBFraw, 0, true);
-  cmp('resampled time grid',    prep.CBFtime,    P.prep.CBFtime, 1e-12);
-  cmp('resampled flow',         prep.CBFspline,  P.prep.CBFspline, 1e-11);
-  cmp('relative flow',          prep.rCBF,       P.prep.rCBF, 1e-11);
-  row('artifact count',  prep.nDespiked === P.prep.nDespiked, `${prep.nDespiked} vs MATLAB ${P.prep.nDespiked}`);
-  row('baseline value',  Math.abs(prep.baseline - P.prep.baseline) < 1e-9, `${prep.baseline.toFixed(6)}`);
-
-  section('Artifact removal with injected spikes');
-  const dp = prepareCBF(D.t, D.x, 1);
-  cmp('resampled flow after de-spiking', dp.CBFspline, D.CBFspline, 1e-11);
-  row('artifact count', dp.nDespiked === D.nDespiked, `${dp.nDespiked} vs MATLAB ${D.nDespiked}`);
-
-  section('Full CMRO₂ analysis');
-  const R = analyze({ time: P.input.time, sfi: P.input.mean_data }, P.sfdi, P.eventTime);
-  cmp('speckle contrast K',           R.Kexp,     P.out.Kexp, 1e-12);
-  cmp('D_b  (must be exact)',         R.Db,       P.out.Db, 0, true);
-  cmp('penetration depth',            R.deltaFx1, P.out.deltaFx1, 1e-12);
-  cmp('absolute CMRO₂',               R.aCMRO2,   P.out.aCMRO2, 1e-12);
-  cmp('relative blood flow',          R.rCBF,     P.out.rCBF, 1e-11);
-  cmp('relative CMRO₂',               R.rCMRO2,   P.out.rCMRO2, 1e-11);
-  cmp('flow / metabolism ratio',      R.rRatio,   P.out.rRatio, 1e-11);
-
-  section('MATLAB file reading');
-  for (const [f, label] of [['sample_v73.mat','v7.3 (HDF5)'], ['sample_v7.mat','v7 (compressed)'], ['sample_v6.mat','v6 (uncompressed)']]) {
-    try {
-      const buf = await fetch(`test/matfiles/${f}`).then((r) => { if (!r.ok) throw new Error('not found'); return r.arrayBuffer(); });
-      const v = await readMat(buf, f);
-      const t = pickVariable(v, ['time']), m = pickVariable(v, ['mean_data']);
-      const good = t && m && t.data.length === 11984 &&
-                   Math.abs(t.data[1] - 0.00029997342858334143) < 1e-15 &&
-                   Math.abs(m.data[0] - 4032.2769449607922) < 1e-9;
-      row(`read ${label}`, !!good, good ? `${t.data.length.toLocaleString()} samples, values match MATLAB` : 'variables missing or wrong');
-    } catch (e) {
-      row(`read ${label}`, false, `sample file not deployed (${e.message}) — optional`);
-      fails--; total--;   // these fixtures are optional in a slim deployment
-      out.lastElementChild.querySelector('td').className = 'muted';
-      out.lastElementChild.querySelector('td').textContent = 'SKIP';
+  function cmp(name, got, ref, tol, exact) {
+    if (got.length !== ref.length) return row(name, false, `length ${got.length} vs ${ref.length}`);
+    let maxRel = 0, nDiff = 0;
+    for (let i = 0; i < ref.length; i++) {
+      if (got[i] !== ref[i]) nDiff++;
+      const r = Math.abs(got[i] - ref[i]) / Math.max(1, Math.abs(ref[i]));
+      if (r > maxRel) maxRel = r;
     }
+    row(name, exact ? nDiff === 0 : maxRel <= tol,
+        exact ? `n=${ref.length}, differing values ${nDiff}` : `n=${ref.length}, worst relative diff ${maxRel.toExponential(2)}`);
   }
 
-  section('Flow-only mode (no SFDI supplied)');
-  const RF = analyze({ time: P.input.time, sfi: P.input.mean_data }, null, P.eventTime);
-  row('runs without SFDI', RF.hasSFDI === false && RF.rCBF.length > 0, `${RF.rCBF.length} points, oxygen skipped`);
-  cmp('flow matches the full run', RF.rCBF, Array.from(prep.rCBF), 0, true);
+  try {
+    const S = window.FIX_SPLINE, P = window.FIX_PIPELINE, D = window.FIX_DESPIKE;
 
-  document.getElementById('status').textContent = `${total} checks`;
-  document.getElementById('verdict').innerHTML = fails === 0
-    ? `<div class="big pass">All ${total} checks passed — this browser reproduces the MATLAB results.</div>`
-    : `<div class="big fail">${fails} of ${total} checks failed. Do not trust results from this build.</div>`;
-  document.title = (fails === 0 ? 'PASS' : 'FAIL') + ' — Verification';
-  window.__verify = { total, fails };
-} catch (err) {
-  document.getElementById('verdict').innerHTML = `<div class="big fail">Could not run: ${err.message}</div>`;
-  window.__verify = { total, fails: fails + 1, error: err.message };
-  document.title = 'FAIL — Verification';
-}
+    grp('Cubic spline, not-a-knot, vs MATLAB spline()');
+    cmp('12 knots, including extrapolation', AK.spline(S.spline1.x, S.spline1.y, S.spline1.xq), S.spline1.yq, 1e-12);
+    cmp('60 unevenly spaced knots',          AK.spline(S.spline2.x, S.spline2.y, S.spline2.xq), S.spline2.yq, 1e-12);
+
+    grp('Flow preparation');
+    const prep = AK.prepareCBF(P.input.time, P.input.mean_data, P.eventTime);
+    cmp('trimmed raw trace',   prep.CBFraw,    P.prep.CBFraw, 0, true);
+    cmp('resampled time grid', prep.CBFtime,   P.prep.CBFtime, 1e-12);
+    cmp('resampled flow',      prep.CBFspline, P.prep.CBFspline, 1e-11);
+    cmp('relative flow',       prep.rCBF,      P.prep.rCBF, 1e-11);
+    row('artifact count', prep.nDespiked === P.prep.nDespiked, `${prep.nDespiked} vs ${P.prep.nDespiked}`);
+    row('baseline value', Math.abs(prep.baseline - P.prep.baseline) < 1e-9, prep.baseline.toFixed(6));
+
+    grp('Artifact removal, injected spikes');
+    const dp = AK.prepareCBF(D.t, D.x, 1);
+    cmp('resampled flow after cleaning', dp.CBFspline, D.CBFspline, 1e-11);
+    row('artifact count', dp.nDespiked === D.nDespiked, `${dp.nDespiked} vs ${D.nDespiked}`);
+
+    grp('CMRO2');
+    const R = AK.analyze({ time: P.input.time, sfi: P.input.mean_data }, P.sfdi, P.eventTime);
+    cmp('speckle contrast K', R.Kexp,     P.out.Kexp, 1e-12);
+    cmp('Db, must be exact',  R.Db,       P.out.Db, 0, true);
+    cmp('penetration depth',  R.deltaFx1, P.out.deltaFx1, 1e-12);
+    cmp('absolute CMRO2',     R.aCMRO2,   P.out.aCMRO2, 1e-12);
+    cmp('relative flow',      R.rCBF,     P.out.rCBF, 1e-11);
+    cmp('relative CMRO2',     R.rCMRO2,   P.out.rCMRO2, 1e-11);
+    cmp('flow / CMRO2 ratio', R.rRatio,   P.out.rRatio, 1e-11);
+
+    grp('Flow only, no haemoglobin file');
+    const RF = AK.analyze({ time: P.input.time, sfi: P.input.mean_data }, null, P.eventTime);
+    row('runs without SFDI', RF.hasSFDI === false && RF.rCBF.length > 0, `${RF.rCBF.length} points`);
+    cmp('flow identical to the full run', RF.rCBF, Array.from(prep.rCBF), 0, true);
+
+    grp('Reading .mat files');
+    const T = P.input.time, M = P.input.mean_data;
+    const canFetch = location.protocol !== 'file:';
+    for (const [f, label] of [['sample_v73.mat','v7.3, HDF5'], ['sample_v7.mat','v7, compressed'], ['sample_v6.mat','v6, uncompressed']]) {
+      if (!canFetch) {
+        // Browsers block reading local files from a page opened off disk. The
+        // reader itself is fine, it just cannot fetch its own samples here.
+        skip(`read ${label}`, 'opened from disk, so the sample file cannot be fetched. Drag a .mat onto the viewer instead.');
+        continue;
+      }
+      try {
+        const res = await fetch(`test/matfiles/${f}`);
+        if (!res.ok) throw new Error('not found');
+        const v = await AK.readMat(await res.arrayBuffer(), f);
+        const t = AK.pickVariable(v, ['time']), m = AK.pickVariable(v, ['mean_data']);
+        const good = t && m && t.data.length === T.length &&
+                     Math.abs(t.data[1] - T[1]) < 1e-15 && Math.abs(m.data[0] - M[0]) < 1e-9;
+        row(`read ${label}`, !!good, good ? `${t.data.length.toLocaleString()} samples match` : 'wrong or missing variables');
+      } catch (e) {
+        skip(`read ${label}`, `sample file not deployed (${e.message})`);
+      }
+    }
+
+    document.getElementById('status').textContent = `${total} checks`;
+    document.getElementById('verdict').className = 'verdict ' + (fails ? 'f' : 'p');
+    document.getElementById('verdict').textContent = fails
+      ? `${fails} of ${total} checks failed. Do not use results from this build.`
+      : `All ${total} checks passed. This browser reproduces the MATLAB results.`;
+    document.title = (fails ? 'FAIL' : 'PASS') + ' - Numerical checks';
+    window.__verify = { total, fails };
+  } catch (err) {
+    document.getElementById('verdict').className = 'verdict f';
+    document.getElementById('verdict').textContent = 'Could not run: ' + err.message;
+    window.__verify = { total, fails: fails + 1, error: err.message };
+    document.title = 'FAIL - Numerical checks';
+  }
+})();
 </script>
 </body>
 </html>

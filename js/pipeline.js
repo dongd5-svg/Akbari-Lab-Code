@@ -1,3 +1,6 @@
+(function (AK) {
+'use strict';
+
 // pipeline.js — CMRO2 analysis, ported from the verified MATLAB implementation.
 //
 // Arithmetic is written in the SAME ORDER as the MATLAB source, not simplified.
@@ -6,9 +9,9 @@
 // a whole sample to the neighbouring grid value. test/ checks every output of
 // this file against MATLAB reference values.
 
-import { spline } from './spline.js';
+var spline = AK.spline;
 
-export const DEFAULTS = {
+const DEFAULTS = {
   n: 1.4,
   lambda: 809,
   fx0: 0,
@@ -31,14 +34,14 @@ export const DEFAULTS = {
 // Haemoglobin absorption at 809 nm, per uM per mm.
 // Prahl tabulated molar extinction x ln(10), interpolated to 1 nm.
 // These are the exact values MATLAB's hbSpectra() returns at index 560.
-export const E_HBO2_809 = 1980.6836969935;
-export const E_HB_809   = 1658.3230363516;
+const E_HBO2_809 = 1980.6836969935;
+const E_HB_809   = 1658.3230363516;
 
 // ---------------------------------------------------------------------------
 // Replace flagged samples with the last preceding good value.
 // A run of consecutive bad samples all collapse to the last good value before
 // the run -- this is a forward fill, not a shift.
-export function forwardFillOutliers(x, isBad) {
+function forwardFillOutliers(x, isBad) {
   const n = x.length;
   const out = Float64Array.from(x);
   let nReplaced = 0;
@@ -76,7 +79,7 @@ function mean(a, i0, i1) {
 
 // ---------------------------------------------------------------------------
 // Clean, resample and baseline-normalise an LSI blood-flow trace.
-export function prepareCBF(time, sfi, eventTime, opt = {}) {
+function prepareCBF(time, sfi, eventTime, opt = {}) {
   const o = { ...DEFAULTS, ...opt };
   const N = time.length;
   if (sfi.length !== N) throw new Error(`time has ${N} samples but flow has ${sfi.length}`);
@@ -139,7 +142,7 @@ export function prepareCBF(time, sfi, eventTime, opt = {}) {
 // Fit the Brownian diffusion coefficient from speckle contrast.
 // Grid search; ties resolve to the smallest Db, matching MATLAB's strict
 // `if cost < cost_min`.
-export function fitDb(Kexp, musp, cthbo2, cthbr, opt = {}) {
+function fitDb(Kexp, musp, cthbo2, cthbr, opt = {}) {
   const o = { ...DEFAULTS, ...opt };
   const N = Kexp.length;
 
@@ -225,7 +228,7 @@ function matchLength(v, n) {
 
 // ---------------------------------------------------------------------------
 // Full analysis for one animal. `sfdi` may be null -> flow-only result.
-export function analyze(lsi, sfdi, eventTime, opt = {}) {
+function analyze(lsi, sfdi, eventTime, opt = {}) {
   const o = { ...DEFAULTS, ...opt };
   const cbf = prepareCBF(lsi.time, lsi.sfi, eventTime, o);
 
@@ -316,3 +319,12 @@ export function analyze(lsi, sfdi, eventTime, opt = {}) {
   });
   return R;
 }
+
+AK.DEFAULTS = DEFAULTS;
+AK.E_HBO2_809 = E_HBO2_809;
+AK.E_HB_809 = E_HB_809;
+AK.forwardFillOutliers = forwardFillOutliers;
+AK.prepareCBF = prepareCBF;
+AK.fitDb = fitDb;
+AK.analyze = analyze;
+})(window.AK = window.AK || {});

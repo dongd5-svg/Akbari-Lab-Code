@@ -1,16 +1,19 @@
+(function (AK) {
+'use strict';
+
 // analysis.js — turn a set of dropped files into results.
 //
 // Works out which file is which, pairs them by animal, and runs the pipeline.
 
-import { readMat, pickVariable } from './matfile.js';
-import { analyze, DEFAULTS } from './pipeline.js';
+var readMat = AK.readMat, pickVariable = AK.pickVariable;
+var analyze = AK.analyze, DEFAULTS = AK.DEFAULTS;
 
 const LSI_TIME = ['time', 'CBFrawtime', 'CBFtime'];
 const LSI_FLOW = ['mean_data', 'CBFraw', 'sfi'];
 const SFDI_NEED = ['MetabolismTime', 'hbo2', 'hbr', 'hbtot', 'scatter730'];
 
 // Pull an animal label out of a filename: "Mouse 272_Baseline_LSI.mat" -> "Mouse272"
-export function animalIdFromName(fileName) {
+function animalIdFromName(fileName) {
   const stem = fileName.replace(/\.mat$/i, '');
   const m = stem.match(/((?:mouse|rat|animal|subject)\s*[-_]?\s*\d+[a-z]?)/i);
   if (m) return m[1].replace(/[\s\-_]+/g, '');
@@ -20,7 +23,7 @@ export function animalIdFromName(fileName) {
 }
 
 // Inspect one file and decide what it holds.
-export async function inspectFile(file) {
+async function inspectFile(file) {
   const buf = await file.arrayBuffer();
   const vars = await readMat(buf, file.name);
 
@@ -62,7 +65,7 @@ export async function inspectFile(file) {
 }
 
 // Group inspected files into animals: one LSI file, optionally one SFDI file.
-export function pairFiles(infos) {
+function pairFiles(infos) {
   const byAnimal = new Map();
   for (const f of infos) {
     if (f.kind === 'unknown') continue;
@@ -87,7 +90,7 @@ export function pairFiles(infos) {
 }
 
 // Run the pipeline over every paired animal.
-export function runAll(pairs, opts) {
+function runAll(pairs, opts) {
   const results = [];
   const problems = [];
   for (const p of pairs) {
@@ -111,7 +114,7 @@ export function runAll(pairs, opts) {
   return { results, problems };
 }
 
-export function summaryRows(results) {
+function summaryRows(results) {
   return results.map((R) => ({
     Animal: R.id,
     Points: R.time.length,
@@ -132,11 +135,17 @@ function meanOf(a) {
   return n ? s / n : NaN;
 }
 
-export function toCSV(rows) {
+function toCSV(rows) {
   if (!rows.length) return '';
   const cols = Object.keys(rows[0]);
   const esc = (v) => (typeof v === 'number' ? (isFinite(v) ? String(v) : '') : `"${String(v).replace(/"/g, '""')}"`);
   return [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');
 }
 
-export { DEFAULTS };
+AK.animalIdFromName = animalIdFromName;
+AK.inspectFile = inspectFile;
+AK.pairFiles = pairFiles;
+AK.runAll = runAll;
+AK.summaryRows = summaryRows;
+AK.toCSV = toCSV;
+})(window.AK = window.AK || {});

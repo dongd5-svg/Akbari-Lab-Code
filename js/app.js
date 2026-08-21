@@ -1,195 +1,194 @@
-// app.js — wiring: drop files, inspect, analyse, render.
+(function (AK) {
+'use strict';
 
-import { inspectFile, pairFiles, runAll, summaryRows, toCSV, DEFAULTS } from './analysis.js';
-import { makeChart, chartsToPNG } from './charts.js';
+var inspectFile = AK.inspectFile, pairFiles = AK.pairFiles, runAll = AK.runAll;
+var summaryRows = AK.summaryRows, toCSV = AK.toCSV, DEFAULTS = AK.DEFAULTS;
+var makeChart = AK.makeChart, chartsToPNG = AK.chartsToPNG;
+var FIG = AK.figure;
 
 const $ = (id) => document.getElementById(id);
-const state = { files: [], results: [], charts: [], animal: 0, metric: 'flow' };
+const state = { files: [], results: [], charts: [], animal: 0, metric: 'flow',
+                figPanels: ['rCBF', 'rCMRO2'] };
 
-// ---------- theme -----------------------------------------------------------
-const savedTheme = safeGet('theme');
-if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+// ---- theme ----
+const saved = safeGet('theme');
+if (saved) document.documentElement.setAttribute('data-theme', saved);
+setThemeLabel();
 $('theme').onclick = () => {
   const cur = document.documentElement.getAttribute('data-theme');
   const dark = cur ? cur === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
   const next = dark ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   safeSet('theme', next);
-  if (state.results.length) renderCharts();
+  setThemeLabel();
+  if (state.results.length) drawCharts();
 };
+function setThemeLabel() {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const dark = cur ? cur === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  $('theme').textContent = dark ? 'Light' : 'Dark';
+}
 
-// ---------- file intake -----------------------------------------------------
+// ---- file intake ----
 const drop = $('drop');
-drop.addEventListener('click', () => $('picker').click());
-drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('picker').click(); } });
-$('picker').addEventListener('change', (e) => addFiles([...e.target.files]));
+drop.onclick = () => $('picker').click();
+drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('picker').click(); } };
+$('picker').onchange = (e) => addFiles([...e.target.files]);
 
 ['dragenter', 'dragover'].forEach((t) =>
   drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
-['dragleave', 'drop'].forEach((t) =>
-  drop.addEventListener(t, (e) => { e.preventDefault(); if (t === 'dragleave' && drop.contains(e.relatedTarget)) return; drop.classList.remove('over'); }));
-drop.addEventListener('drop', (e) => addFiles([...(e.dataTransfer?.files || [])]));
+drop.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  if (!drop.contains(e.relatedTarget)) drop.classList.remove('over');
+});
+drop.addEventListener('drop', (e) => {
+  e.preventDefault(); drop.classList.remove('over');
+  addFiles([...(e.dataTransfer ? e.dataTransfer.files : [])]);
+});
 
 $('clearFiles').onclick = () => {
   state.files = []; state.results = [];
-  renderFiles(); hide('resultsPanel'); hide('chartsPanel');
+  drawFiles(); hide('resultsPanel'); hide('chartsPanel');
 };
 
 async function addFiles(list) {
   const mats = list.filter((f) => /\.mat$/i.test(f.name));
   const skipped = list.length - mats.length;
+  show('filesPanel');
   if (!mats.length) {
-    msg('fileMsgs', 'err', skipped ? `Those are not .mat files. Drop MATLAB .mat files instead.` : 'No files received.');
-    show('filesPanel');
+    note('fileMsgs', 'e', 'No .mat files in that drop.');
     return;
   }
-  show('filesPanel');
-  msg('fileMsgs', 'info', `<span class="spinner"></span> Reading ${mats.length} file${mats.length > 1 ? 's' : ''}…`);
+  clearNote('fileMsgs');
+  note('fileMsgs', 'i', `Reading ${mats.length} file${mats.length > 1 ? 's' : ''}.`);
 
   for (const f of mats) {
     if (state.files.some((x) => x.name === f.name && x.size === f.size)) continue;
     try {
       state.files.push(await inspectFile(f));
     } catch (err) {
-      state.files.push({ name: f.name, size: f.size, kind: 'unknown', animal: '--',
+      state.files.push({ name: f.name, size: f.size, kind: 'unknown', animal: '',
                          error: err.message, varNames: [], nSamples: 0 });
     }
-    renderFiles();
+    drawFiles();
   }
-  clearMsg('fileMsgs');
-  renderFiles();
-  if (skipped) msg('fileMsgs', 'warn', `Ignored ${skipped} file(s) that were not .mat.`);
+  clearNote('fileMsgs');
+  drawFiles();
+  if (skipped) note('fileMsgs', 'w', `Skipped ${skipped} file(s) that were not .mat.`);
 }
 
-function renderFiles() {
-  const tb = $('fileTable').querySelector('tbody');
-  if (!state.files.length) { hide('filesPanel'); hide('settingsPanel'); tb.innerHTML = ''; return; }
+function drawFiles() {
+  const tbl = $('fileTable');
+  if (!state.files.length) { hide('filesPanel'); hide('settingsPanel'); tbl.innerHTML = ''; return; }
 
   const pairs = pairFiles(state.files);
-  const paired = new Map();
-  pairs.forEach((p) => {
-    if (p.lsiFile) paired.set(p.lsiFile.name, p.id);
-    if (p.sfdiFile) paired.set(p.sfdiFile.name, p.id);
-  });
+  const used = new Set();
+  pairs.forEach((p) => { if (p.lsiFile) used.add(p.lsiFile.name); if (p.sfdiFile) used.add(p.sfdiFile.name); });
 
-  tb.innerHTML =
-    `<tr><th>File</th><th>Type</th><th>Animal</th><th class="num">Samples</th><th>Notes</th></tr>` +
+  tbl.innerHTML =
+    '<tr><th>File</th><th>Contents</th><th>Animal</th><th class="n">Samples</th><th>Note</th></tr>' +
     state.files.map((f) => {
-      const tag = f.kind === 'lsi' ? '<span class="tag lsi">LSI flow</span>'
-               : f.kind === 'sfdi' ? '<span class="tag sfdi">SFDI oxygen</span>'
-               : '<span class="tag unknown">not recognised</span>';
-      let note = '';
-      if (f.error) note = `<span class="muted">${esc(f.error)}</span>`;
+      const kind = f.kind === 'lsi' ? '<span class="lsi">flow</span>'
+                 : f.kind === 'sfdi' ? '<span class="sfdi">haemoglobin</span>'
+                 : '<span class="bad">not usable</span>';
+      let n = '';
+      if (f.error) n = `<span class="dim">${esc(f.error)}</span>`;
       else if (f.kind === 'unknown') {
-        note = `<span class="muted">no usable variables — found ${f.varNames.length ? esc(f.varNames.slice(0, 4).join(', ')) : 'nothing'}</span>`;
-      } else if (!paired.has(f.name)) note = '<span class="muted">not paired</span>';
-      return `<tr><td class="mono">${esc(f.name)}</td><td>${tag}</td><td>${esc(f.animal)}</td>` +
-             `<td class="num">${f.nSamples ? f.nSamples.toLocaleString() : '--'}</td><td>${note}</td></tr>`;
+        n = `<span class="dim">variables found: ${f.varNames.length ? esc(f.varNames.slice(0, 4).join(', ')) : 'none'}</span>`;
+      } else if (!used.has(f.name)) n = '<span class="dim">unpaired</span>';
+      return `<tr><td class="mono">${esc(f.name)}</td><td>${kind}</td><td>${esc(f.animal)}</td>` +
+             `<td class="n">${f.nSamples ? f.nSamples.toLocaleString() : ''}</td><td>${n}</td></tr>`;
     }).join('');
 
-  const nReady = pairs.length;
+  show('settingsPanel');
   const nOx = pairs.filter((p) => p.sfdiFile).length;
-  if (nReady) {
-    show('settingsPanel');
-    $('run').disabled = false;
-    $('runStatus').innerHTML = `${nReady} animal${nReady > 1 ? 's' : ''} ready` +
-      (nOx ? `, ${nOx} with oxygen data` : ' — flow only, add SFDI ROI files for CMRO₂');
-  } else {
-    show('settingsPanel');
-    $('run').disabled = true;
-    $('runStatus').textContent = 'No usable LSI file yet.';
-  }
+  $('run').disabled = pairs.length === 0;
+  $('runStatus').textContent = pairs.length
+    ? `${pairs.length} animal${pairs.length > 1 ? 's' : ''}, ${nOx} with haemoglobin data`
+    : 'Need at least one flow file.';
 }
 
-// ---------- run -------------------------------------------------------------
+// ---- run ----
 $('run').onclick = () => {
   const pairs = pairFiles(state.files);
   if (!pairs.length) return;
-
-  const opts = {
-    ...DEFAULTS,
-    eventTime: numOr($('eventTime').value, 1),
-    cbfHighThreshold: numOr($('hiThr').value, 40000),
-    cbfLowThreshold: numOr($('loThr').value, -950),
-    Texposure: numOr($('exposure').value, 10) / 1000,
-  };
+  const opts = Object.assign({}, DEFAULTS, {
+    eventTime: num($('eventTime').value, 1),
+    cbfHighThreshold: num($('hiThr').value, 40000),
+    cbfLowThreshold: num($('loThr').value, -950),
+    Texposure: num($('exposure').value, 10) / 1000,
+  });
 
   $('run').disabled = true;
-  $('runStatus').innerHTML = '<span class="spinner"></span> analysing…';
+  $('runStatus').textContent = 'working';
 
   setTimeout(() => {
     const t0 = performance.now();
-    const { results, problems } = runAll(pairs, opts);
+    const r = runAll(pairs, opts);
     const ms = performance.now() - t0;
-    state.results = results;
+    state.results = r.results;
     state.animal = 0;
     $('run').disabled = false;
-    $('runStatus').textContent = `${results.length} of ${pairs.length} analysed in ${ms.toFixed(0)} ms`;
-    renderResults(problems, ms);
+    $('runStatus').textContent = `${r.results.length} of ${pairs.length} done in ${ms.toFixed(0)} ms`;
+    drawResults(r.problems);
   }, 10);
 };
 
-function renderResults(problems, ms) {
+function drawResults(problems) {
   const rows = summaryRows(state.results);
   show('resultsPanel');
-  clearMsg('resultMsgs');
+  clearNote('resultMsgs');
 
   if (problems.length) {
-    msg('resultMsgs', 'err',
-      `<strong>${problems.length} animal(s) failed:</strong><br>` +
-      problems.map((p) => `${esc(p.id)} — ${esc(p.message)}`).join('<br>'));
+    note('resultMsgs', 'e', problems.map((p) => `${esc(p.id)}: ${esc(p.message)}`).join('<br>'));
   }
-  const noOx = state.results.filter((r) => !r.hasSFDI);
-  if (noOx.length === state.results.length && state.results.length) {
-    msg('resultMsgs', 'warn',
-      'No SFDI data supplied, so only blood flow was computed. Add the ROI <code>.mat</code> files (containing <span class="mono">MetabolismTime, hbo2, hbr, hbtot, scatter730</span>) to get CMRO₂.');
-  } else if (noOx.length) {
-    msg('resultMsgs', 'warn', `${noOx.length} animal(s) had no SFDI data — oxygen skipped for them.`);
+  const noOx = state.results.filter((r) => !r.hasSFDI).length;
+  if (noOx && noOx === state.results.length) {
+    note('resultMsgs', 'w', 'No haemoglobin files, so flow only. Add the SFDI ROI files for CMRO2.');
+  } else if (noOx) {
+    note('resultMsgs', 'w', `${noOx} animal(s) had no haemoglobin data, so CMRO2 was skipped for them.`);
   }
-  const short = state.results.filter((r) => r.shortBaseline);
-  if (short.length) {
-    msg('resultMsgs', 'warn', `${short.length} recording(s) were shorter than the baseline window; the first ${DEFAULTS.baselineWin} min was used instead.`);
-  }
+  const short = state.results.filter((r) => r.shortBaseline).length;
+  if (short) note('resultMsgs', 'w', `${short} recording(s) were shorter than the baseline window. The first ${DEFAULTS.baselineWin} min was used.`);
 
   if (!rows.length) { $('summary').innerHTML = ''; hide('chartsPanel'); return; }
 
   const cols = Object.keys(rows[0]);
   $('summary').innerHTML =
-    `<tr>${cols.map((c) => `<th>${esc(niceCol(c))}</th>`).join('')}</tr>` +
-    rows.map((r) => `<tr>${cols.map((c) => {
+    '<tr>' + cols.map((c) => `<th class="${typeof rows[0][c] === 'number' ? 'n' : ''}">${esc(head(c))}</th>`).join('') + '</tr>' +
+    rows.map((r) => '<tr>' + cols.map((c) => {
       const v = r[c];
-      if (typeof v === 'number') return `<td class="num">${isFinite(v) ? sig(v) : '<span class="muted">--</span>'}</td>`;
-      if (c === 'Oxygen') return `<td>${v === 'yes' ? '<span class="tag ok">yes</span>' : '<span class="muted">no</span>'}</td>`;
+      if (typeof v === 'number') return `<td class="n">${isFinite(v) ? sig(v) : ''}</td>`;
+      if (c === 'Oxygen') return `<td class="${v === 'yes' ? 'yes' : 'no'}">${v}</td>`;
       return `<td>${esc(String(v))}</td>`;
-    }).join('')}</tr>`).join('');
+    }).join('') + '</tr>').join('');
 
-  renderTabs();
-  renderCharts();
+  drawTabs();
+  drawCharts();
+  drawFigure();
 }
 
-function renderTabs() {
-  const at = $('animalTabs');
-  at.innerHTML = state.results.map((r, i) =>
-    `<button role="tab" aria-selected="${i === state.animal}" data-i="${i}">${esc(r.id)}</button>`).join('');
-  at.querySelectorAll('button').forEach((b) => {
-    b.onclick = () => { state.animal = +b.dataset.i; renderTabs(); renderCharts(); };
+function drawTabs() {
+  $('animalTabs').innerHTML = state.results.map((r, i) =>
+    `<button aria-selected="${i === state.animal}" data-i="${i}">${esc(r.id)}</button>`).join('');
+  $('animalTabs').querySelectorAll('button').forEach((b) => {
+    b.onclick = () => { state.animal = +b.dataset.i; drawTabs(); drawCharts(); drawFigure(); };
   });
 
   const R = state.results[state.animal];
-  const metrics = R?.hasSFDI
-    ? [['flow', 'Blood flow'], ['oxygen', 'Oxygen use'], ['absolute', 'Absolute values'], ['raw', 'Raw + cleaned']]
-    : [['flow', 'Blood flow'], ['raw', 'Raw + cleaned']];
-  if (!metrics.some((m) => m[0] === state.metric)) state.metric = 'flow';
+  const opts = R && R.hasSFDI
+    ? [['flow', 'Flow'], ['oxygen', 'CMRO2'], ['absolute', 'Absolute'], ['raw', 'Raw']]
+    : [['flow', 'Flow'], ['raw', 'Raw']];
+  if (!opts.some((o) => o[0] === state.metric)) state.metric = 'flow';
 
-  const mt = $('metricTabs');
-  mt.innerHTML = metrics.map(([k, label]) =>
-    `<button role="tab" aria-selected="${k === state.metric}" data-k="${k}">${label}</button>`).join('');
-  mt.querySelectorAll('button').forEach((b) => {
-    b.onclick = () => { state.metric = b.dataset.k; renderTabs(); renderCharts(); };
+  $('metricTabs').innerHTML = opts.map(([k, l]) =>
+    `<button aria-selected="${k === state.metric}" data-k="${k}">${l}</button>`).join('');
+  $('metricTabs').querySelectorAll('button').forEach((b) => {
+    b.onclick = () => { state.metric = b.dataset.k; drawTabs(); drawCharts(); };
   });
 }
 
-function renderCharts() {
+function drawCharts() {
   const host = $('charts');
   state.charts.forEach((c) => c.destroy());
   state.charts = [];
@@ -198,55 +197,156 @@ function renderCharts() {
   if (!R) { hide('chartsPanel'); return; }
   show('chartsPanel');
 
-  const C1 = cssv('--accent'), C2 = cssv('--accent-2');
+  const B = cssv('--blue'), O = cssv('--orange');
   const t = Array.from(R.time);
-  const add = (cfg) => state.charts.push(makeChart(host, cfg));
+  const add = (c) => state.charts.push(makeChart(host, c));
 
   if (state.metric === 'flow') {
-    add({ title: 'Relative blood flow', subtitle: '1.0 = baseline average', yLabel: 'rCBF',
-          x: t, series: [{ label: 'rCBF', y: Array.from(R.rCBF), color: C1 }] });
-    add({ title: 'Blood flow, resampled', subtitle: 'de-spiked and interpolated to 100 samples/min',
-          yLabel: 'SFI', x: Array.from(R.CBFtime), series: [{ label: 'CBF', y: Array.from(R.CBFspline), color: C1 }] });
+    add({ title: 'Relative blood flow', yLabel: 'rCBF', x: t,
+          series: [{ label: 'rCBF', y: Array.from(R.rCBF), color: B }] });
+    add({ title: 'Blood flow, resampled', yLabel: 'SFI', x: Array.from(R.CBFtime),
+          series: [{ label: 'CBF', y: Array.from(R.CBFspline), color: B }] });
   } else if (state.metric === 'oxygen') {
-    add({ title: 'Relative oxygen use', subtitle: '1.0 = baseline average', yLabel: 'rCMRO₂',
-          x: t, series: [{ label: 'rCMRO₂', y: Array.from(R.rCMRO2), color: C2 }] });
-    add({ title: 'Flow vs metabolism', subtitle: 'rCBF ÷ rCMRO₂ — above 1 means supply exceeds demand',
-          yLabel: 'ratio', x: t, series: [{ label: 'rCBF/rCMRO₂', y: Array.from(R.rRatio), color: C1 }] });
-    add({ title: 'Relative flow and oxygen together', yLabel: 'relative', x: t,
-          series: [{ label: 'rCBF', y: Array.from(R.rCBF), color: C1 },
-                   { label: 'rCMRO₂', y: Array.from(R.rCMRO2), color: C2 }] });
+    add({ title: 'Relative CMRO2', yLabel: 'rCMRO2', x: t,
+          series: [{ label: 'rCMRO2', y: Array.from(R.rCMRO2), color: O }] });
+    add({ title: 'rCBF / rCMRO2', yLabel: 'ratio', x: t,
+          series: [{ label: 'ratio', y: Array.from(R.rRatio), color: B }] });
+    add({ title: 'Flow and CMRO2', yLabel: 'relative', x: t,
+          series: [{ label: 'rCBF', y: Array.from(R.rCBF), color: B },
+                   { label: 'rCMRO2', y: Array.from(R.rCMRO2), color: O }] });
   } else if (state.metric === 'absolute') {
-    add({ title: 'Absolute blood flow (D_b)', subtitle: 'fitted Brownian diffusion coefficient, mm²/s',
-          yLabel: 'D_b', x: t, series: [{ label: 'aCBF', y: Array.from(R.aCBF), color: C1 }] });
-    add({ title: 'Absolute oxygen consumption', subtitle: 'µmol O₂ / min', yLabel: 'aCMRO₂',
-          x: t, series: [{ label: 'aCMRO₂', y: Array.from(R.aCMRO2), color: C2 }] });
-    add({ title: 'Haemoglobin', subtitle: 'from the SFDI file, µM', yLabel: 'µM', x: t,
-          series: [{ label: 'HbO₂', y: Array.from(R.cthbo2), color: C1 },
-                   { label: 'HbR', y: Array.from(R.cthb), color: C2 }] });
+    add({ title: 'Db, mm2/s', yLabel: 'Db', x: t,
+          series: [{ label: 'aCBF', y: Array.from(R.aCBF), color: B }] });
+    add({ title: 'Absolute CMRO2, umol O2/min', yLabel: 'aCMRO2', x: t,
+          series: [{ label: 'aCMRO2', y: Array.from(R.aCMRO2), color: O }] });
+    add({ title: 'Haemoglobin, uM', yLabel: 'uM', x: t,
+          series: [{ label: 'HbO2', y: Array.from(R.cthbo2), color: B },
+                   { label: 'HbR', y: Array.from(R.cthb), color: O }] });
   } else {
-    add({ title: 'Raw recording', subtitle: `${R.CBFraw.length.toLocaleString()} frames as acquired`,
-          yLabel: 'SFI', x: Array.from(R.CBFrawtime),
-          series: [{ label: 'raw', y: Array.from(R.CBFraw), color: C1, width: 1 }] });
-    add({ title: 'After cleaning and resampling',
-          subtitle: `${R.nDespiked} artifact sample${R.nDespiked === 1 ? '' : 's'} replaced`,
-          yLabel: 'SFI', x: Array.from(R.CBFtime),
-          series: [{ label: 'cleaned', y: Array.from(R.CBFspline), color: C2 }] });
+    add({ title: `Raw recording, ${R.CBFraw.length.toLocaleString()} frames`, yLabel: 'SFI',
+          x: Array.from(R.CBFrawtime),
+          series: [{ label: 'raw', y: Array.from(R.CBFraw), color: B, width: 1 }] });
+    add({ title: `After cleaning, ${R.nDespiked} sample(s) replaced`, yLabel: 'SFI',
+          x: Array.from(R.CBFtime),
+          series: [{ label: 'cleaned', y: Array.from(R.CBFspline), color: O }] });
   }
 }
 
-// ---------- downloads -------------------------------------------------------
-$('dlCsv').onclick = () => {
-  const csv = toCSV(summaryRows(state.results));
-  download(new Blob([csv], { type: 'text/csv' }), 'cmro2_summary.csv');
+
+// ---- publication figure ----
+const FIG_METRICS = [
+  ['rCBF',   'Relative CBF',          (R) => ({ y: R.rCBF,   yLabel: 'rCBF' }),                       () => true],
+  ['rCMRO2', 'Relative CMRO2',        (R) => ({ y: R.rCMRO2, yLabel: 'rCMRO_2' }),                (R) => R.hasSFDI],
+  ['rRatio', 'rCBF / rCMRO2',         (R) => ({ y: R.rRatio, yLabel: 'rCBF / rCMRO_2' }),         (R) => R.hasSFDI],
+  ['aCBF',   'Absolute CBF',          (R) => ({ y: R.aCBF,   yLabel: 'D_b (mm^2 s^{-1})' }), (R) => R.hasSFDI],
+  ['aCMRO2', 'Absolute CMRO2',        (R) => ({ y: R.aCMRO2, yLabel: 'CMRO_2 (\u00b5mol min^{-1})' }), (R) => R.hasSFDI],
+  ['flow',   'Flow, resampled',       (R) => ({ y: R.CBFspline, x: R.CBFtime, yLabel: 'SFI (a.u.)' }), () => true],
+  ['hb',     'Haemoglobin',           null,                                                            (R) => R.hasSFDI],
+];
+
+function figOpts() {
+  return {
+    widthMm: parseFloat($('figWidth').value),
+    panelHeightMm: parseFloat($('figHeight').value) || 32,
+    fontPt: parseFloat($('figFont').value) || 7,
+    lineWidthPt: parseFloat($('figLine').value) || 0.75,
+    greyscale: $('figGrey').checked,
+    grid: $('figGrid').checked,
+    sharedX: $('figShared').checked,
+    panelLabels: true,
+  };
+}
+
+function drawFigure() {
+  const R = state.results[state.animal];
+  if (!R) { hide('figPanel'); return; }
+  show('figPanel');
+
+  const avail = FIG_METRICS.filter((m) => m[3](R));
+  state.figPanels = state.figPanels.filter((k) => avail.some((m) => m[0] === k));
+  if (!state.figPanels.length) state.figPanels = [avail[0][0]];
+
+  $('figPanels').innerHTML = avail.map(([k, label]) =>
+    `<button aria-selected="${state.figPanels.includes(k)}" data-k="${k}">${label}</button>`).join('');
+  $('figPanels').querySelectorAll('button').forEach((b) => {
+    b.onclick = () => {
+      const k = b.dataset.k;
+      const i = state.figPanels.indexOf(k);
+      if (i >= 0) { if (state.figPanels.length > 1) state.figPanels.splice(i, 1); }
+      else state.figPanels.push(k);
+      state.figPanels.sort((a, c) => avail.findIndex((m) => m[0] === a) - avail.findIndex((m) => m[0] === c));
+      drawFigure();
+    };
+  });
+
+  const panels = state.figPanels.map((k) => figPanel(R, k)).filter(Boolean);
+  if (!panels.length) { $('figPreview').innerHTML = ''; return; }
+
+  const o = figOpts();
+  const svg = FIG.build(panels, o);
+  $('figPreview').innerHTML = svg;
+
+  const el = $('figPreview').querySelector('svg');
+  const hMm = el ? parseFloat(el.getAttribute('height')) : 0;
+  state.figSvg = svg;
+  state.figW = o.widthMm;
+  state.figH = hMm;
+  $('figSize').textContent =
+    `${o.widthMm} × ${hMm.toFixed(1)} mm, ${panels.length} panel${panels.length > 1 ? 's' : ''}. ` +
+    `SVG keeps text editable; PNG is flattened at the chosen resolution.`;
+}
+
+function figPanel(R, key) {
+  const t = Array.from(R.time);
+  if (key === 'hb') {
+    return { yLabel: 'Concentration (\u00b5M)', xLabel: 'Time (min)',
+             series: [{ x: t, y: Array.from(R.cthbo2), label: 'HbO_2' },
+                      { x: t, y: Array.from(R.cthb),   label: 'HbR' }] };
+  }
+  const m = FIG_METRICS.find((v) => v[0] === key);
+  if (!m || !m[2]) return null;
+  const d = m[2](R);
+  if (!d.y) return null;
+  return { yLabel: d.yLabel, xLabel: 'Time (min)',
+           series: [{ x: Array.from(d.x || R.time), y: Array.from(d.y), label: d.yLabel }] };
+}
+
+['figWidth','figHeight','figFont','figLine','figGrey','figGrid','figShared'].forEach((id) => {
+  $(id).addEventListener('change', drawFigure);
+  $(id).addEventListener('input', drawFigure);
+});
+
+$('dlSvg').onclick = () => {
+  if (!state.figSvg) return;
+  const R = state.results[state.animal];
+  save(new Blob([state.figSvg], { type: 'image/svg+xml' }), `${R.id}_figure.svg`);
 };
+
+$('dlPngHi').onclick = async () => {
+  if (!state.figSvg) return;
+  const R = state.results[state.animal];
+  const dpi = parseInt($('figDpi').value, 10);
+  $('dlPngHi').disabled = true;
+  try {
+    const blob = await FIG.toPNG(state.figSvg, state.figW, state.figH, dpi);
+    save(blob, `${R.id}_figure_${dpi}dpi.png`);
+  } catch (e) {
+    note('resultMsgs', 'e', 'Could not export PNG: ' + esc(e.message));
+  }
+  $('dlPngHi').disabled = false;
+};
+
+// ---- downloads ----
+$('dlCsv').onclick = () =>
+  save(new Blob([toCSV(summaryRows(state.results))], { type: 'text/csv' }), 'cmro2_summary.csv');
+
 $('dlPng').onclick = () => {
   if (!state.charts.length) return;
   const R = state.results[state.animal];
-  chartsToPNG(state.charts, `${R.id} — ${$('metricTabs').querySelector('[aria-selected="true"]')?.textContent || ''}`)
-    .toBlob((b) => download(b, `${R.id}_charts.png`));
+  chartsToPNG(state.charts, R.id).toBlob((b) => save(b, `${R.id}.png`));
 };
 
-function download(blob, name) {
+function save(blob, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
@@ -254,28 +354,30 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-// ---------- small helpers ---------------------------------------------------
-function show(id) { $(id).classList.remove('hidden'); }
-function hide(id) { $(id).classList.add('hidden'); }
-function msg(host, kind, html) {
+// ---- helpers ----
+function show(id) { $(id).classList.remove('hide'); }
+function hide(id) { $(id).classList.add('hide'); }
+function note(host, kind, html) {
   const d = document.createElement('div');
-  d.className = `msg ${kind}`;
+  d.className = 'note-box ' + kind;
   d.innerHTML = html;
   $(host).appendChild(d);
 }
-function clearMsg(host) { $(host).innerHTML = ''; }
+function clearNote(host) { $(host).innerHTML = ''; }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
-function numOr(v, d) { const n = parseFloat(v); return isFinite(n) ? n : d; }
+function num(v, d) { const n = parseFloat(v); return isFinite(n) ? n : d; }
 function cssv(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 function sig(v) {
   const a = Math.abs(v);
   if (a === 0) return '0';
   if (a < 1e-3 || a >= 1e6) return v.toExponential(3);
-  return (+v.toPrecision(5)).toString();
+  return String(+v.toPrecision(5));
 }
-function niceCol(c) {
-  return { mean_rCBF: 'mean rCBF', mean_rCMRO2: 'mean rCMRO₂', mean_aCBF: 'mean aCBF',
-           mean_aCMRO2: 'mean aCMRO₂', SpikesRemoved: 'spikes removed', ms: 'ms' }[c] || c;
+function head(c) {
+  return { mean_rCBF: 'rCBF', mean_rCMRO2: 'rCMRO2', mean_aCBF: 'aCBF', mean_aCMRO2: 'aCMRO2',
+           SpikesRemoved: 'replaced', Points: 'points', Oxygen: 'CMRO2', ms: 'ms' }[c] || c;
 }
-function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
-function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+})(window.AK = window.AK || {});

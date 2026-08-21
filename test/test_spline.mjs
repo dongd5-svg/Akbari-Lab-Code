@@ -1,10 +1,11 @@
-import { spline } from '../js/spline.js';
+import { AK } from './_load.mjs';
+import { loadFixture } from './_fixtures.mjs';
 import { readFileSync } from 'fs';
 
-const ref = JSON.parse(readFileSync(new URL('../fixtures/spline_ref.json', import.meta.url)));
+const ref = loadFixture('spline_ref');
 
 function check(name, c) {
-  const got = spline(c.x, c.y, c.xq);
+  const got = AK.spline(c.x, c.y, c.xq);
   let maxAbs = 0, maxRel = 0, worst = -1;
   for (let i = 0; i < got.length; i++) {
     const e = Math.abs(got[i] - c.yq[i]);
@@ -20,7 +21,7 @@ function check(name, c) {
   return pass;
 }
 
-console.log('\nSpline vs MATLAB spline():');
+console.log('\nSpline vs MATLAB AK.spline():');
 const ok = [check('12 knots, incl. extrapolation', ref.spline1),
             check('60 uneven knots', ref.spline2)].every(Boolean);
 process.exit(ok ? 0 : 1);

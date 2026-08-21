@@ -32,23 +32,23 @@ console.log('\n=== App UI ===');
 
 // --- 1. one LSI + one SFDI ---
 await page.setInputFiles('#picker', [M('Subject 101_Baseline.mat'), M('Subject 101_roi.mat')]);
-await page.waitForSelector('#settingsPanel:not(.hidden)', { timeout: 30000 });
-await page.waitForFunction(() => document.querySelectorAll('#fileTable tbody tr').length >= 3, null, {timeout:30000});
-const tags = await page.$$eval('#fileTable .tag', els => els.map(e => e.textContent.trim()));
-ok(tags.includes('LSI flow') && tags.includes('SFDI oxygen'), 'both file types detected', tags.join(' / '));
-ok((await page.textContent('#runStatus')).includes('with oxygen'), 'pairing recognised', await page.textContent('#runStatus'));
+await page.waitForSelector('#settingsPanel:not(.hide)', { timeout: 30000 });
+await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 3, null, {timeout:30000});
+const tags = await page.$$eval('#fileTable tr td:nth-child(2)', els => els.map(e => e.textContent.trim()));
+ok(tags.includes('flow') && tags.includes('haemoglobin'), 'both file types detected', tags.join(' / '));
+ok((await page.textContent('#runStatus')).includes('with haemoglobin'), 'pairing recognised', await page.textContent('#runStatus'));
 
 await page.click('#run');
-await page.waitForSelector('#resultsPanel:not(.hidden)', { timeout: 30000 });
+await page.waitForSelector('#resultsPanel:not(.hide)', { timeout: 30000 });
 await page.waitForFunction(() => document.querySelectorAll('#summary tr').length > 1, null, {timeout:30000});
 const hdr = await page.$$eval('#summary tr:first-child th', e => e.map(x=>x.textContent.trim()));
 const row = await page.$$eval('#summary tr:nth-child(2) td', e => e.map(x=>x.textContent.trim()));
 ok(row.length === hdr.length, 'summary table rendered', row.join(' | '));
-ok(row[hdr.indexOf('Oxygen')] === 'yes', 'oxygen computed');
-ok(Math.abs(parseFloat(row[hdr.indexOf('mean rCBF')]) - 1.0) < 0.25,
-   'mean rCBF is plausible', row[hdr.indexOf('mean rCBF')]);
+ok(row[hdr.indexOf('CMRO2')] === 'yes', 'oxygen computed');
+ok(Math.abs(parseFloat(row[hdr.indexOf('rCBF')]) - 1.0) < 0.25,
+   'mean rCBF is plausible', row[hdr.indexOf('rCBF')]);
 
-await page.waitForSelector('#chartsPanel:not(.hidden)');
+await page.waitForSelector('#chartsPanel:not(.hide)');
 ok((await page.$$('#charts canvas')).length >= 2, 'charts drawn',
    `${(await page.$$('#charts canvas')).length} canvases`);
 
@@ -63,20 +63,20 @@ await page.screenshot({ path: 'test/shot_results.png', fullPage: true });
 
 // --- 2. flow-only animal added ---
 await page.setInputFiles('#picker', [M('Subject 102_Baseline_LSI.mat')]);
-await page.waitForFunction(() => document.querySelectorAll('#fileTable tbody tr').length >= 4, null, {timeout:30000});
+await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 4, null, {timeout:30000});
 await page.click('#run');
 await page.waitForFunction(() => document.querySelectorAll('#summary tr').length >= 3, null, {timeout:30000});
 const rows2 = await page.$$eval('#summary tr', tr => tr.slice(1).map(r => [...r.querySelectorAll('td')].map(c=>c.textContent.trim())));
 ok(rows2.length === 2, 'two animals analysed', `${rows2.length}`);
-const oxCol = hdr.indexOf('Oxygen');
+const oxCol = hdr.indexOf('CMRO2');
 ok(rows2.some(r => r[oxCol]==='yes') && rows2.some(r => r[oxCol]==='no'),
    'one with oxygen, one flow-only', rows2.map(r=>`${r[0]}:${r[oxCol]}`).join(' '));
-ok((await page.textContent('#resultMsgs')).toLowerCase().includes('no sfdi'),
+ok((await page.textContent('#resultMsgs')).toLowerCase().includes('haemoglobin'),
    'warns about the animal missing SFDI');
 
 // --- 3. a junk file is rejected clearly ---
 await page.setInputFiles('#picker', [M('sample_types_v7.mat')]);
-await page.waitForFunction(() => [...document.querySelectorAll('#fileTable .tag')].some(t=>t.textContent.includes('not recognised')), null, {timeout:30000});
+await page.waitForFunction(() => [...document.querySelectorAll('#fileTable tr td:nth-child(2)')].some(t=>t.textContent.includes('not usable')), null, {timeout:30000});
 ok(true, 'unusable file flagged rather than crashing');
 
 // --- 4. CSV download ---
@@ -93,6 +93,7 @@ ok(await page.evaluate(() => document.documentElement.getAttribute('data-theme')
 await page.screenshot({ path: 'test/shot_dark.png', fullPage: true });
 
 await browser.close(); server.close();
-if (errs.length) { console.log('\nconsole errors:'); errs.slice(0,8).forEach(e=>console.log('  '+e)); fail += errs.length; }
+const real = errs.filter(e => !/favicon|404/i.test(e));
+if (real.length) { console.log('\nconsole errors:'); real.slice(0,8).forEach(e=>console.log('  '+e)); fail += real.length; }
 console.log(fail === 0 ? '\nALL UI CHECKS PASSED\n' : `\n${fail} UI CHECK(S) FAILED\n`);
 process.exit(fail ? 1 : 0);

@@ -35,5 +35,6 @@ console.log(`\n  -> ${v.total} checks, ${v.fails} failed`);
 
 await browser.close();
 server.close();
-if (errors.length) { console.log('\nconsole errors:'); errors.forEach((e) => console.log('  ' + e)); }
+const real = errors.filter(e => !/favicon|404/i.test(e));
+if (real.length) { console.log('\nconsole errors:'); real.forEach((e) => console.log('  ' + e)); }
 process.exit(v.fails === 0 ? 0 : 1);

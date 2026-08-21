@@ -1,8 +1,9 @@
-import { analyze, prepareCBF } from '../js/pipeline.js';
+import { AK } from './_load.mjs';
+import { loadFixture } from './_fixtures.mjs';
 import { readFileSync } from 'fs';
 
-const P = JSON.parse(readFileSync(new URL('../fixtures/pipeline_ref.json', import.meta.url)));
-const D = JSON.parse(readFileSync(new URL('../fixtures/despike_ref.json', import.meta.url)));
+const P = loadFixture('pipeline_ref');
+const D = loadFixture('despike_ref');
 
 let failures = 0;
 
@@ -26,7 +27,7 @@ function cmp(name, got, ref, tol = 1e-12, exact = false) {
 }
 
 console.log('\n--- prepareCBF on real Mouse272 data ---');
-const prep = prepareCBF(P.input.time, P.input.mean_data, P.eventTime);
+const prep = AK.prepareCBF(P.input.time, P.input.mean_data, P.eventTime);
 cmp('CBFraw',     prep.CBFraw,     P.prep.CBFraw, 0, true);
 cmp('CBFrawtime', prep.CBFrawtime, P.prep.CBFrawtime);
 cmp('CBFtime',    prep.CBFtime,    P.prep.CBFtime);
@@ -37,14 +38,14 @@ console.log(`  ${Math.abs(prep.baseline - P.prep.baseline) < 1e-9 ? 'PASS' : 'FA
 if (prep.nDespiked !== P.prep.nDespiked) failures++;
 
 console.log('\n--- despike with injected spikes ---');
-const dp = prepareCBF(D.t, D.x, 1);
+const dp = AK.prepareCBF(D.t, D.x, 1);
 cmp('CBFspline (despiked)', dp.CBFspline, D.CBFspline);
 cmp('rCBF (despiked)',      dp.rCBF,      D.rCBF);
 console.log(`  ${dp.nDespiked === D.nDespiked ? 'PASS' : 'FAIL'}  nDespiked              ${dp.nDespiked} vs ${D.nDespiked}`);
 if (dp.nDespiked !== D.nDespiked) failures++;
 
 console.log('\n--- full CMRO2 analysis ---');
-const R = analyze({ time: P.input.time, sfi: P.input.mean_data }, P.sfdi, P.eventTime);
+const R = AK.analyze({ time: P.input.time, sfi: P.input.mean_data }, P.sfdi, P.eventTime);
 cmp('Kexp',     R.Kexp,     P.out.Kexp);
 cmp('Db',       R.Db,       P.out.Db, 0, true);       // grid values: must match exactly
 cmp('deltaFx1', R.deltaFx1, P.out.deltaFx1);

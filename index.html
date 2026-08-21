@@ -3,107 +3,154 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CBF &amp; CMRO₂ Viewer — Akbari Lab</title>
+<title>CBF and CMRO2 viewer</title>
 <link rel="stylesheet" href="vendor/uplot/uPlot.min.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M1 11 L4 5 L6 9 L8 3 L11 12 L13 7 L15 9%27 fill=%27none%27 stroke=%27%230b62a4%27 stroke-width=%271.6%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>🩸</text></svg>">
 </head>
 <body>
 <div class="wrap">
 
   <header>
-    <div class="t">
-      <h1>CBF &amp; CMRO₂ Viewer</h1>
-      <p class="sub">Drop MATLAB <code>.mat</code> files to get blood-flow and oxygen-metabolism results.</p>
-      <p class="privacy">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4z"/></svg>
-        Everything runs inside your browser. No file is uploaded anywhere.
-      </p>
-    </div>
-    <button id="theme" title="Switch light / dark">◐</button>
+    <h1>CBF and CMRO2 viewer</h1>
+    <span class="note">Akbari lab</span>
+    <span class="sp"><button id="theme">Dark</button></span>
   </header>
 
-  <div id="drop" tabindex="0" role="button" aria-label="Drop .mat files here or click to browse">
-    <h2>Drop <code>.mat</code> files here</h2>
-    <p>or click to browse — you can add many animals at once</p>
-    <p class="hint">LSI files need <span class="mono">time</span> + <span class="mono">mean_data</span>. SFDI ROI files add oxygen results and are optional.</p>
+  <div id="drop" tabindex="0" role="button">
+    <p class="big">Drop .mat files here, or click to choose</p>
+    <p class="sm">Several animals at once is fine.</p>
     <input type="file" id="picker" accept=".mat" multiple hidden>
   </div>
 
-  <div id="filesPanel" class="panel hidden">
-    <h3>Files
-      <span class="right">
-        <button id="clearFiles">Clear all</button>
-      </span>
-    </h3>
-    <div class="body">
+  <section id="filesPanel" class="hide">
+    <h2>Files <span class="sp"><button id="clearFiles">Clear</button></span></h2>
+    <div class="in">
       <div id="fileMsgs"></div>
-      <div class="scroll"><table id="fileTable"><tbody></tbody></table></div>
+      <div class="sx"><table id="fileTable"></table></div>
     </div>
-  </div>
+  </section>
 
-  <div id="settingsPanel" class="panel hidden">
-    <h3>Settings</h3>
-    <div class="body">
-      <div class="settings">
-        <div class="field">
+  <section id="settingsPanel" class="hide">
+    <h2>Settings</h2>
+    <div class="in">
+      <div class="fields">
+        <div>
           <label for="eventTime">Baseline anchor (min)</label>
           <input id="eventTime" type="number" step="0.1" value="1">
-          <div class="note">Relative values are measured against the half-minute before this. Use 1 for a plain baseline recording.</div>
+          <p class="h">Relative values use the half minute before this time. Use 1 for a baseline recording.</p>
         </div>
-        <div class="field">
-          <label for="hiThr">Artifact threshold, high</label>
+        <div>
+          <label for="hiThr">Artifact cutoff, high</label>
           <input id="hiThr" type="number" step="1000" value="40000">
-          <div class="note">Flow above this is treated as noise.</div>
+          <p class="h">Flow above this counts as noise.</p>
         </div>
-        <div class="field">
-          <label for="loThr">Artifact threshold, low</label>
+        <div>
+          <label for="loThr">Artifact cutoff, low</label>
           <input id="loThr" type="number" step="50" value="-950">
-          <div class="note">Flow below this is treated as noise.</div>
+          <p class="h">Flow below this counts as noise.</p>
         </div>
-        <div class="field">
+        <div>
           <label for="exposure">Camera exposure (ms)</label>
           <input id="exposure" type="number" step="1" value="10">
-          <div class="note">Must match the acquisition setting.</div>
+          <p class="h">Must match the acquisition setting.</p>
         </div>
       </div>
-      <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
-        <button id="run" class="primary">Analyse</button>
-        <span id="runStatus" class="muted"></span>
+      <div class="row" style="margin-top:12px">
+        <button id="run" class="go">Analyse</button>
+        <span id="runStatus" class="dim"></span>
       </div>
     </div>
-  </div>
+  </section>
 
-  <div id="resultsPanel" class="panel hidden">
-    <h3>Results
-      <span class="right">
-        <button id="dlCsv">Download CSV</button>
-        <button id="dlPng">Download charts</button>
-      </span>
-    </h3>
-    <div class="body">
+  <section id="resultsPanel" class="hide">
+    <h2>Results <span class="sp">
+      <button id="dlCsv">CSV</button><button id="dlPng">PNG</button>
+    </span></h2>
+    <div class="in">
       <div id="resultMsgs"></div>
-      <div class="scroll"><table id="summary"></table></div>
+      <div class="sx"><table id="summary"></table></div>
     </div>
-  </div>
+  </section>
 
-  <div id="chartsPanel" class="panel hidden">
-    <h3>Charts
-      <span class="right"><div class="tabs" id="animalTabs"></div></span>
-    </h3>
-    <div class="body">
-      <div class="tabs" id="metricTabs" style="margin-bottom:14px;"></div>
-      <div class="chartgrid" id="charts"></div>
+  <section id="figPanel" class="hide">
+    <h2>Figure for publication <span class="sp">
+      <button id="dlSvg">SVG</button><button id="dlPngHi">PNG</button>
+    </span></h2>
+    <div class="in">
+      <div class="fields" style="margin-bottom:12px">
+        <div>
+          <label for="figWidth">Width</label>
+          <select id="figWidth">
+            <option value="85">85 mm, single column</option>
+            <option value="114">114 mm, 1.5 column</option>
+            <option value="170">170 mm, double column</option>
+          </select>
+          <p class="h">Exported at this exact size.</p>
+        </div>
+        <div>
+          <label for="figHeight">Panel height (mm)</label>
+          <input id="figHeight" type="number" step="2" min="14" max="90" value="32">
+        </div>
+        <div>
+          <label for="figFont">Font size (pt)</label>
+          <input id="figFont" type="number" step="0.5" min="5" max="12" value="7">
+        </div>
+        <div>
+          <label for="figLine">Line width (pt)</label>
+          <input id="figLine" type="number" step="0.25" min="0.25" max="2" value="0.75">
+        </div>
+        <div>
+          <label for="figDpi">PNG resolution</label>
+          <select id="figDpi">
+            <option value="300">300 dpi</option>
+            <option value="600" selected>600 dpi</option>
+            <option value="1200">1200 dpi</option>
+          </select>
+          <p class="h">SVG is vector and has no resolution.</p>
+        </div>
+        <div>
+          <label>Options</label>
+          <label class="cb"><input type="checkbox" id="figGrey"> Greyscale</label>
+          <label class="cb"><input type="checkbox" id="figGrid"> Gridlines</label>
+          <label class="cb"><input type="checkbox" id="figShared" checked> Shared x axis</label>
+        </div>
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <span class="dim">Panels:</span>
+        <span class="row" id="figPanels"></span>
+      </div>
+      <div id="figPreview" class="figbox"></div>
+      <p class="h" id="figSize"></p>
     </div>
-  </div>
+  </section>
+
+  <section id="chartsPanel" class="hide">
+    <h2>Interactive plots <span class="sp"><span class="row" id="animalTabs"></span></span></h2>
+    <div class="in">
+      <div class="row" id="metricTabs" style="margin-bottom:12px"></div>
+      <div class="plots" id="charts"></div>
+    </div>
+  </section>
 
   <footer>
-    <p><strong>What this computes.</strong> Blood-flow traces are de-spiked, resampled to 100 samples/min and normalised to the baseline window. With SFDI data it also fits the Brownian diffusion coefficient (D<sub>b</sub>) to the measured speckle contrast and derives absolute and relative CMRO₂.</p>
-    <p><strong>Verified against MATLAB.</strong> The maths here is a direct port of the lab's MATLAB pipeline, checked against MATLAB reference output — D<sub>b</sub> matches bit-for-bit, every other output to better than 1&nbsp;part in 10<sup>12</sup>. Open <a href="test.html">test.html</a> to run those checks in your own browser.</p>
-    <p class="muted">Reads MATLAB v6, v7 and v7.3 files. Works offline once loaded.</p>
+    <p>LSI files need <code>time</code> and <code>mean_data</code>. SFDI ROI files need
+       <code>MetabolismTime</code>, <code>hbo2</code>, <code>hbr</code>, <code>hbtot</code>,
+       <code>scatter730</code>, and are optional. Without one you get flow results only.</p>
+    <p>Reads MATLAB v6, v7 and v7.3. Files are read in the browser and are not sent anywhere.</p>
+    <p>Numerics were checked against the MATLAB pipeline. <a href="test.html">Run the checks</a>.</p>
   </footer>
 
 </div>
-<script type="module" src="js/app.js"></script>
+
+<script src="vendor/uplot/uPlot.iife.min.js"></script>
+<script src="vendor/h5wasm/h5wasm.js"></script>
+<script src="js/spline.js"></script>
+<script src="js/pipeline.js"></script>
+<script src="js/matfile.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/figure.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
