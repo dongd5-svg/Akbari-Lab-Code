@@ -137,9 +137,54 @@ function meanOf(a) {
 
 function toCSV(rows) {
   if (!rows.length) return '';
-  const cols = Object.keys(rows[0]);
-  const esc = (v) => (typeof v === 'number' ? (isFinite(v) ? String(v) : '') : `"${String(v).replace(/"/g, '""')}"`);
+  // Animals without SFDI have fewer columns, so take the union in first-seen order.
+  const seen = new Set(), cols = [];
+  for (const r of rows) for (const k in r) if (!seen.has(k)) { seen.add(k); cols.push(k); }
+  const esc = (v) => (v === undefined || v === null ? ''
+    : typeof v === 'number' ? (isFinite(v) ? String(v) : '')
+    : `"${String(v).replace(/"/g, '""')}"`);
   return [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');
+}
+
+// Pad or trim to n points the same way the pipeline does.
+function matchLen(v, n) {
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) out[i] = i < v.length ? v[i] : v[v.length - 1];
+  return out;
+}
+
+// Every timepoint of one animal, one row each. These are the same numbers you
+// would read out of the struct in MATLAB, just laid out for a spreadsheet.
+function traceRows(R) {
+  const n = R.time.length;
+  const flow = matchLen(R.CBFspline, n);
+  const rows = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const r = {
+      Animal: R.id,
+      Time_min: R.time[i],
+      CBF_SFI: flow[i],
+      rCBF: R.rCBF[i],
+    };
+    if (R.hasSFDI) {
+      r.aCBF_Db_mm2_per_s   = R.aCBF[i];
+      r.aCMRO2_umol_per_min = R.aCMRO2[i];
+      r.rCMRO2              = R.rCMRO2[i];
+      r.rCBF_over_rCMRO2    = R.rRatio[i];
+      r.HbO2_uM             = R.cthbo2[i];
+      r.HbR_uM              = R.cthb[i];
+      r.HbTot_uM            = R.cthbtot[i];
+      r.musp730_per_mm      = R.scatter730[i];
+    }
+    rows[i] = r;
+  }
+  return rows;
+}
+
+function allTraceRows(results) {
+  const out = [];
+  for (const R of results) for (const r of traceRows(R)) out.push(r);
+  return out;
 }
 
 AK.animalIdFromName = animalIdFromName;
@@ -148,4 +193,6 @@ AK.pairFiles = pairFiles;
 AK.runAll = runAll;
 AK.summaryRows = summaryRows;
 AK.toCSV = toCSV;
+AK.traceRows = traceRows;
+AK.allTraceRows = allTraceRows;
 })(window.AK = window.AK || {});

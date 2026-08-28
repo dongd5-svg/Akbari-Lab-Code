@@ -3,6 +3,7 @@
 
 var inspectFile = AK.inspectFile, pairFiles = AK.pairFiles, runAll = AK.runAll;
 var summaryRows = AK.summaryRows, toCSV = AK.toCSV, DEFAULTS = AK.DEFAULTS;
+var allTraceRows = AK.allTraceRows;
 var makeChart = AK.makeChart, chartsToPNG = AK.chartsToPNG;
 var FIG = AK.figure;
 
@@ -338,7 +339,15 @@ $('dlPngHi').onclick = async () => {
 
 // ---- downloads ----
 $('dlCsv').onclick = () =>
-  save(new Blob([toCSV(summaryRows(state.results))], { type: 'text/csv' }), 'cmro2_summary.csv');
+  save(new Blob([toCSV(summaryRows(state.results))], { type: 'text/csv' }), 'summary.csv');
+
+// Every timepoint, not just the per-animal averages.
+$('dlData').onclick = () => {
+  const rows = allTraceRows(state.results);
+  if (!rows.length) return;
+  const name = state.results.length === 1 ? `${state.results[0].id}_data.csv` : 'all_animals_data.csv';
+  save(new Blob([toCSV(rows)], { type: 'text/csv' }), name);
+};
 
 $('dlPng').onclick = () => {
   if (!state.charts.length) return;
