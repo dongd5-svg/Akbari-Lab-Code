@@ -1,15 +1,11 @@
 {
   "name": "cmro2-viewer",
   "version": "1.0.0",
-  "description": "Browser-based CBF and CMRO2 viewer for MATLAB .mat files",
-  "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
+  "description": "Browser CBF and CMRO2 viewer for MATLAB .mat files",
   "scripts": {
-    "test": "node test/test_spline.mjs && node test/test_pipeline.mjs && node test/test_matfile.mjs"
+    "test": "node test/test_spline.mjs && node test/test_pipeline.mjs && node test/test_matfile.mjs && node test/test_groups.mjs",
+    "test:browser": "node test/browser_verify.mjs && node test/browser_app.mjs && node test/browser_groups.mjs && node test/browser_figure.mjs && node test/browser_file_protocol.mjs"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {

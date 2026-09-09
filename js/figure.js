@@ -1,18 +1,6 @@
 (function (AK) {
 'use strict';
 
-// figure.js - vector figures sized for journal submission.
-//
-// The interactive plots elsewhere are drawn on a canvas, which is fine on
-// screen but turns into a fuzzy bitmap in a manuscript. This builds SVG
-// instead, laid out in real millimetres, so a figure exported at 85 mm arrives
-// in the journal template at exactly 85 mm with text still selectable and
-// curves still sharp at any zoom.
-//
-// Conventions follow what most journals ask for: single column 85 mm, double
-// column 170 mm, sans-serif labels at 7 pt, hairline axes, ticks pointing
-// outward, no box, no gridlines unless asked.
-
 const PT = 25.4 / 72;              // 1 pt in mm
 
 const PRESETS = {
@@ -35,14 +23,13 @@ const DEFAULTS = {
   font: 'Helvetica, Arial, sans-serif',
 };
 
-// ---------------------------------------------------------------------------
 function buildFigure(panels, opt) {
   const o = Object.assign({}, DEFAULTS, opt);
-  const f = o.fontPt * PT;                       // label size in mm
+  const f = o.fontPt * PT;
   const lw = o.lineWidthPt * PT;
   const aw = o.axisWidthPt * PT;
 
-  const mL = f * 4.4;                            // room for tick labels + title
+  const mL = f * 4.4;
   const mR = f * 0.8;
   const mT = o.panelLabels ? f * 1.5 : f * 0.6;
   const mB = f * 3.2;
@@ -66,7 +53,9 @@ function buildFigure(panels, opt) {
   panels.forEach((p, i) => {
     const top = mT + i * (plotH + gapY);
     const xDom = o.sharedX ? xDomShared : spanOf(p.series.map((s) => s.x));
-    const yDom = p.yRange || padded(spanOf(p.series.map((s) => s.y)));
+    const yArrays = [];
+    p.series.forEach((s) => { yArrays.push(s.y); if (s.lo) yArrays.push(s.lo, s.hi); });
+    const yDom = p.yRange || padded(spanOf(yArrays));
 
     const xt = ticks(xDom[0], xDom[1], 5);
     const yt = ticks(yDom[0], yDom[1], 4);
@@ -84,7 +73,14 @@ function buildFigure(panels, opt) {
       parts.push(`<path d="${g.join('')}" stroke="#cccccc" stroke-width="${r(aw * 0.7)}" fill="none"/>`);
     }
 
-    // data
+    p.series.forEach((s, k) => {
+      if (!s.lo || !s.hi) return;
+      const base = o.greyscale ? (k === 0 ? '#000000' : '#7a7a7a')
+                               : (s.color || o.colors[k % o.colors.length]);
+      parts.push(`<path d="${bandPath(s.x, s.lo, s.hi, X, Y, plotW)}" fill="${base}" ` +
+                 `fill-opacity="${o.greyscale ? 0.18 : 0.16}" stroke="none"/>`);
+    });
+
     p.series.forEach((s, k) => {
       const stroke = o.greyscale ? (k === 0 ? '#000000' : '#7a7a7a') : (s.color || o.colors[k % o.colors.length]);
       const dash = o.greyscale && k > 0 ? ` stroke-dasharray="${r(lw * 3)},${r(lw * 2)}"` : '';
@@ -93,11 +89,9 @@ function buildFigure(panels, opt) {
         `stroke-width="${r(lw)}" stroke-linejoin="round" stroke-linecap="round"${dash}/>`);
     });
 
-    // axes: left and bottom only
     parts.push(`<path d="M${r(mL)},${r(top)}V${r(top + plotH)}H${r(mL + plotW)}" ` +
                `fill="none" stroke="#000000" stroke-width="${r(aw)}"/>`);
 
-    // y ticks
     const tk = f * 0.5;
     yt.forEach((v) => {
       const y = Y(v);
@@ -106,7 +100,6 @@ function buildFigure(panels, opt) {
                  `${esc(fmtTick(v, yt, yScaleExp))}</text>`);
     });
 
-    // x ticks
     xt.forEach((v) => {
       const x = X(v);
       parts.push(`<path d="M${r(x)},${r(top + plotH)}V${r(top + plotH + tk)}" stroke="#000000" stroke-width="${r(aw)}"/>`);
@@ -116,7 +109,6 @@ function buildFigure(panels, opt) {
       }
     });
 
-    // y label, rotated
     const yLab = yScaleExp ? `${p.yLabel} (\u00d710^{${yScaleExp}})` : p.yLabel;
     const yc = top + plotH / 2;
     parts.push(`<text transform="translate(${r(f * 0.95)},${r(yc)}) rotate(-90)" text-anchor="middle">` +
@@ -132,7 +124,6 @@ function buildFigure(panels, opt) {
                  `${String.fromCharCode(65 + i)}</text>`);
     }
 
-    // legend, only when a panel has more than one series
     if (p.series.length > 1) {
       const lx = mL + plotW, ly = top + f * 0.9;
       const items = p.series.map((s, k) => ({
@@ -160,12 +151,6 @@ function buildFigure(panels, opt) {
   return parts.join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// Reduce a trace to at most two points per output column, keeping the min and
-// max within each column. Visually identical to plotting every sample, but a
-// 12,000 point recording becomes a few hundred path commands instead, which is
-// the difference between a 40 kB figure and a 2 MB one that Illustrator chokes
-// on.
 function polyline(x, y, X, Y, plotWmm) {
   const targetCols = Math.max(120, Math.round(plotWmm * 12));
   const n = x.length;
@@ -196,6 +181,28 @@ function polyline(x, y, X, Y, plotWmm) {
   return out.join('');
 }
 
+function bandPath(x, lo, hi, X, Y, plotWmm) {
+  const cols = Math.max(120, Math.round(plotWmm * 12));
+  const n = x.length;
+  const per = Math.max(1, n / cols);
+  const up = [], down = [];
+  for (let c = 0; c < Math.min(cols, n); c++) {
+    const i0 = Math.floor(c * per), i1 = Math.min(n, Math.max(i0 + 1, Math.floor((c + 1) * per)));
+    let mx = -Infinity, mn = Infinity, xi = i0;
+    for (let i = i0; i < i1; i++) {
+      if (isFinite(hi[i]) && hi[i] > mx) mx = hi[i];
+      if (isFinite(lo[i]) && lo[i] < mn) mn = lo[i];
+    }
+    if (!isFinite(mx) || !isFinite(mn)) continue;
+    const px = r(X(x[Math.min(xi, n - 1)]));
+    up.push(`${px},${r(Y(mx))}`);
+    down.push(`${px},${r(Y(mn))}`);
+  }
+  if (!up.length) return '';
+  down.reverse();
+  return 'M' + up.join('L') + 'L' + down.join('L') + 'Z';
+}
+
 function spanOf(arrays) {
   let lo = Infinity, hi = -Infinity;
   for (const a of arrays) {
@@ -216,7 +223,6 @@ function padded([lo, hi]) {
   return [lo - p, hi + p];
 }
 
-// 1-2-5 tick steps
 function ticks(lo, hi, target) {
   const raw = (hi - lo) / target;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -230,8 +236,6 @@ function ticks(lo, hi, target) {
   return out;
 }
 
-// Journals prefer "3.0" with a "x10^-5" in the axis label over "0.00003" on
-// every tick, so pull a common exponent out when the values are small or large.
 function pickExponent(tks) {
   const mx = Math.max(...tks.map((t) => Math.abs(t)));
   if (!isFinite(mx) || mx === 0) return 0;
@@ -248,12 +252,8 @@ function fmtTick(v, tks, exp) {
   return t === '-0' ? '0' : t;
 }
 
-
-// Turn "rCMRO_2" or "mm^{-1}" into tspans.
-//
-// Only relative dy shifts are used. Mixing baseline-shift with dy double-counts
-// in some renderers and the subscript floats away from its baseline; plain dy
-// behaves identically everywhere, including inside a rotated <text>.
+// Relative dy only. Adding baseline-shift double-counts in some renderers and
+// the subscript drifts off its baseline.
 function rich(str, f) {
   const s = String(str);
   const runs = [];
@@ -293,9 +293,6 @@ function esc(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 }
 
-// ---------------------------------------------------------------------------
-// Rasterise the SVG at a chosen dots-per-inch, for journals that insist on TIFF
-// or PNG. 300 dpi is the usual minimum, 600 for line art.
 function svgToPNG(svg, widthMm, heightMm, dpi) {
   return new Promise((resolve, reject) => {
     const px = (mm) => Math.round(mm / 25.4 * dpi);

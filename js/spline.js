@@ -1,25 +1,15 @@
 (function (AK) {
 'use strict';
 
-// spline.js — cubic spline interpolation matching MATLAB's spline().
-//
-// MATLAB uses the NOT-A-KNOT end condition: the third derivative is continuous
-// across the second and second-to-last knots. This is NOT the same as a
-// "natural" spline (second derivative zero at the ends), which is what most
-// quick JavaScript implementations do — and using the wrong one shifts every
-// interpolated value. That difference is the single most likely way a port of
-// this pipeline silently disagrees with MATLAB, so it is implemented carefully
-// here and checked against MATLAB output in test/.
-//
-// Also matches MATLAB's behaviour outside the data range: it EXTRAPOLATES using
-// the end polynomials rather than returning NaN.
+// Not-a-knot end conditions, not the natural spline. Getting that wrong shifts
+// every interpolated value away from MATLAB. Extrapolates past the ends, as
+// MATLAB does.
 
 function splineNotAKnot(x, y) {
   const n = x.length;
   if (n !== y.length) throw new Error(`spline: x has ${n} points, y has ${y.length}`);
   if (n < 2) throw new Error('spline: need at least 2 points');
 
-  // Two points -> straight line. Three points -> single parabola.
   if (n === 2) {
     const m = (y[1] - y[0]) / (x[1] - x[0]);
     return { x: Float64Array.from(x), a: Float64Array.from([y[0]]),
@@ -32,9 +22,6 @@ function splineNotAKnot(x, y) {
     if (h[i] <= 0) throw new Error('spline: x must be strictly increasing');
   }
 
-  // Solve for second derivatives (sigma) with not-a-knot end conditions.
-  // Tridiagonal system, solved by Thomas algorithm with the two end rows
-  // folded in.
   const A = new Float64Array(n);   // sub
   const B = new Float64Array(n);   // diag
   const C = new Float64Array(n);   // super
@@ -48,22 +35,17 @@ function splineNotAKnot(x, y) {
   }
 
   if (n === 3) {
-    // Not-a-knot with 3 points degenerates to a single quadratic through all
-    // three, i.e. constant second derivative.
     const s = D[1] / (B[1] + h[0] + h[1]);
     const sig = new Float64Array([s, s, s]);
     return buildPieces(x, y, h, sig);
   }
 
-  // Not-a-knot: sigma[0] is a linear extrapolation of sigma[1], sigma[2];
-  // same at the far end. Substituting removes them from the system.
   B[1] += h[0] * (h[0] + h[1]) / h[1];
   C[1] -= h[0] * h[0] / h[1];
 
   B[n - 2] += h[n - 2] * (h[n - 2] + h[n - 3]) / h[n - 3];
   A[n - 2] -= h[n - 2] * h[n - 2] / h[n - 3];
 
-  // Thomas algorithm over rows 1..n-2
   const cp = new Float64Array(n);
   const dp = new Float64Array(n);
   cp[1] = C[1] / B[1];
@@ -78,7 +60,6 @@ function splineNotAKnot(x, y) {
   sig[n - 2] = dp[n - 2];
   for (let i = n - 3; i >= 1; i--) sig[i] = dp[i] - cp[i] * sig[i + 1];
 
-  // Recover the two end second-derivatives from the not-a-knot condition.
   sig[0]     = ((h[0] + h[1]) * sig[1] - h[0] * sig[2]) / h[1];
   sig[n - 1] = ((h[n - 2] + h[n - 3]) * sig[n - 2] - h[n - 2] * sig[n - 3]) / h[n - 3];
 
@@ -100,8 +81,6 @@ function buildPieces(x, y, h, sig) {
   return { x: Float64Array.from(x), a, b, c, d };
 }
 
-// Evaluate a fitted spline at query points. Extrapolates past both ends using
-// the end polynomials, as MATLAB does.
 function splineEval(pp, xq) {
   const { x, a, b, c, d } = pp;
   const nSeg = a.length;
@@ -113,7 +92,6 @@ function splineEval(pp, xq) {
   for (let k = 0; k < xq.length; k++) {
     const q = xq[k];
     if (ascending) {
-      // queries usually arrive sorted, so walk forward instead of binary searching
       while (seg < nSeg - 1 && q >= x[seg + 1]) seg++;
       while (seg > 0 && q < x[seg]) seg--;
     } else {
@@ -136,7 +114,6 @@ function findSegment(x, q, nSeg) {
   return lo;
 }
 
-// Convenience: fit and evaluate in one call, like MATLAB's spline(x,y,xq).
 function spline(x, y, xq) {
   return splineEval(splineNotAKnot(x, y), xq);
 }

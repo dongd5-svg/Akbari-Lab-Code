@@ -5,11 +5,14 @@ var inspectFile = AK.inspectFile, pairFiles = AK.pairFiles, runAll = AK.runAll;
 var summaryRows = AK.summaryRows, toCSV = AK.toCSV, DEFAULTS = AK.DEFAULTS;
 var allTraceRows = AK.allTraceRows;
 var makeChart = AK.makeChart, chartsToPNG = AK.chartsToPNG;
-var FIG = AK.figure;
+var FIG = AK.figure, GR = AK.groups;
+
+const GROUP_COLORS = ['#0b62a4', '#b8560f', '#117733', '#882255', '#44aa99', '#999933', '#332288'];
 
 const $ = (id) => document.getElementById(id);
 const state = { files: [], results: [], charts: [], animal: 0, metric: 'flow',
-                figPanels: ['rCBF', 'rCMRO2'] };
+                figPanels: ['rCBF', 'rCMRO2'],
+                assign: {}, view: 'animal', cmpA: '', cmpB: '', touched: false };
 
 // ---- theme ----
 const saved = safeGet('theme');
@@ -48,8 +51,10 @@ drop.addEventListener('drop', (e) => {
 });
 
 $('clearFiles').onclick = () => {
-  state.files = []; state.results = [];
-  drawFiles(); hide('resultsPanel'); hide('chartsPanel');
+  state.files = []; state.results = []; state.assign = {}; state.touched = false;
+  state.view = 'animal';
+  drawFiles(); hide('resultsPanel'); hide('chartsPanel'); hide('groupsPanel'); hide('figPanel');
+  show('blank');
 };
 
 async function addFiles(list) {
@@ -86,20 +91,33 @@ function drawFiles() {
   const used = new Set();
   pairs.forEach((p) => { if (p.lsiFile) used.add(p.lsiFile.name); if (p.sfdiFile) used.add(p.sfdiFile.name); });
 
-  tbl.innerHTML =
-    '<tr><th>File</th><th>Contents</th><th>Animal</th><th class="n">Samples</th><th>Note</th></tr>' +
-    state.files.map((f) => {
-      const kind = f.kind === 'lsi' ? '<span class="lsi">flow</span>'
-                 : f.kind === 'sfdi' ? '<span class="sfdi">haemoglobin</span>'
-                 : '<span class="bad">not usable</span>';
-      let n = '';
-      if (f.error) n = `<span class="dim">${esc(f.error)}</span>`;
-      else if (f.kind === 'unknown') {
-        n = `<span class="dim">variables found: ${f.varNames.length ? esc(f.varNames.slice(0, 4).join(', ')) : 'none'}</span>`;
-      } else if (!used.has(f.name)) n = '<span class="dim">unpaired</span>';
-      return `<tr><td class="mono">${esc(f.name)}</td><td>${kind}</td><td>${esc(f.animal)}</td>` +
-             `<td class="n">${f.nSamples ? f.nSamples.toLocaleString() : ''}</td><td>${n}</td></tr>`;
-    }).join('');
+  if (!state.touched) {
+    const g = GR.guessGroups(state.files);
+    if (Object.keys(g).length) state.assign = g;
+  }
+
+  tbl.innerHTML = state.files.map((f) => {
+    const kind = f.kind === 'lsi' ? '<span class="lsi">flow</span>'
+               : f.kind === 'sfdi' ? '<span class="sfdi">haemoglobin</span>'
+               : '<span class="bad">not usable</span>';
+    const bits = [];
+    if (f.animal) bits.push(esc(f.animal));
+    if (f.nSamples) bits.push(f.nSamples.toLocaleString() + ' samples');
+    if (f.error) bits.push(`<span class="bad">${esc(f.error)}</span>`);
+    else if (f.kind === 'unknown') {
+      bits.push('found ' + (f.varNames.length ? esc(f.varNames.slice(0, 3).join(', ')) : 'nothing'));
+    } else if (!used.has(f.name)) bits.push('<span class="bad">unpaired</span>');
+
+    const grp = f.kind === 'unknown' ? ''
+      : `<input class="grp" data-a="${esc(f.animal)}" value="${esc(state.assign[f.animal] || '')}" ` +
+        `placeholder="group" aria-label="Group for ${esc(f.animal)}">`;
+
+    return `<tr><td class="fname"><span class="nm mono" title="${esc(f.name)}">${esc(f.name)}</span>` +
+           `<span class="sub">${bits.join(' · ')}</span></td>` +
+           `<td class="kind">${kind}</td><td class="grpcell">${grp}</td></tr>`;
+  }).join('');
+
+  bindGroupInputs();
 
   show('settingsPanel');
   const nOx = pairs.filter((p) => p.sfdiFile).length;
@@ -137,6 +155,7 @@ $('run').onclick = () => {
 
 function drawResults(problems) {
   const rows = summaryRows(state.results);
+  hide('blank');
   show('resultsPanel');
   clearNote('resultMsgs');
 
@@ -164,22 +183,42 @@ function drawResults(problems) {
       return `<td>${esc(String(v))}</td>`;
     }).join('') + '</tr>').join('');
 
+  drawGroups();
   drawTabs();
   drawCharts();
   drawFigure();
 }
 
 function drawTabs() {
-  $('animalTabs').innerHTML = state.results.map((r, i) =>
-    `<button aria-selected="${i === state.animal}" data-i="${i}">${esc(r.id)}</button>`).join('');
+  const gs = currentGroups();
+  if (!gs.length && state.view === 'groups') state.view = 'animal';
+
+  const tabs = [];
+  if (gs.length) {
+    tabs.push(`<button aria-selected="${state.view === 'groups'}" data-g="1">Groups</button>`);
+  }
+  state.results.forEach((r, i) => {
+    const on = state.view === 'animal' && i === state.animal;
+    tabs.push(`<button aria-selected="${on}" data-i="${i}">${esc(r.id)}</button>`);
+  });
+  $('animalTabs').innerHTML = tabs.join('');
   $('animalTabs').querySelectorAll('button').forEach((b) => {
-    b.onclick = () => { state.animal = +b.dataset.i; drawTabs(); drawCharts(); drawFigure(); };
+    b.onclick = () => {
+      if (b.dataset.g) state.view = 'groups';
+      else { state.view = 'animal'; state.animal = +b.dataset.i; }
+      drawTabs(); drawCharts(); drawFigure();
+    };
   });
 
-  const R = state.results[state.animal];
-  const opts = R && R.hasSFDI
+  const grouped = gs.flatMap((g) => g.members);
+  const anyOx = state.view === 'groups'
+    ? grouped.some((r) => r.hasSFDI)
+    : !!(state.results[state.animal] && state.results[state.animal].hasSFDI);
+
+  let opts = anyOx
     ? [['flow', 'Flow'], ['oxygen', 'CMRO2'], ['absolute', 'Absolute'], ['raw', 'Raw']]
     : [['flow', 'Flow'], ['raw', 'Raw']];
+  if (state.view === 'groups') opts = opts.filter((o) => o[0] !== 'raw');
   if (!opts.some((o) => o[0] === state.metric)) state.metric = 'flow';
 
   $('metricTabs').innerHTML = opts.map(([k, l]) =>
@@ -194,6 +233,9 @@ function drawCharts() {
   state.charts.forEach((c) => c.destroy());
   state.charts = [];
   host.innerHTML = '';
+
+  if (state.view === 'groups') { drawGroupCharts(host); return; }
+
   const R = state.results[state.animal];
   if (!R) { hide('chartsPanel'); return; }
   show('chartsPanel');
@@ -233,6 +275,155 @@ function drawCharts() {
   }
 }
 
+function drawGroupCharts(host) {
+  const gs = currentGroups();
+  if (!gs.length) { hide('chartsPanel'); return; }
+  show('chartsPanel');
+
+  const keys = state.metric === 'flow' ? ['rCBF']
+             : state.metric === 'oxygen' ? ['rCMRO2', 'rRatio']
+             : ['aCBF', 'aCMRO2'];
+
+  for (const key of keys) {
+    const m = GR.METRICS.find((v) => v.key === key);
+    const tr = GR.groupTraces(gs, key);
+    if (!tr) continue;
+    const series = tr.series.map((sr) => ({
+      label: `${sr.name} (n=${sr.n})`,
+      y: Array.from(sr.mean),
+      color: GROUP_COLORS[gs.findIndex((g) => g.name === sr.name) % GROUP_COLORS.length],
+      band: { lo: Array.from(sr.lo), hi: Array.from(sr.hi) },
+    }));
+    state.charts.push(makeChart(host, {
+      title: `${m.label}, mean ± SEM`, yLabel: key, x: Array.from(tr.x), series,
+    }));
+  }
+
+  if (!state.charts.length) {
+    note('resultMsgs', 'w', 'Nothing to average for these groups yet.');
+  }
+}
+
+// ---- groups ----
+function bindGroupInputs() {
+  const boxes = [...$('fileTable').querySelectorAll('input.grp')];
+  boxes.forEach((el) => {
+    el.oninput = () => {
+      const a = el.dataset.a;
+      state.touched = true;
+      state.assign[a] = el.value;
+      boxes.forEach((o) => { if (o !== el && o.dataset.a === a) o.value = el.value; });
+      clearTimeout(state.grpTimer);
+      state.grpTimer = setTimeout(() => {
+        drawGroups();
+        if (state.view === 'groups') { drawTabs(); drawCharts(); }
+        drawFigure();
+      }, 250);
+    };
+  });
+}
+
+function currentGroups() { return GR.groupsOf(state.results, state.assign); }
+
+function drawGroups() {
+  const gs = currentGroups();
+  if (!state.results.length || !gs.length) { hide('groupsPanel'); return; }
+  show('groupsPanel');
+  clearNote('groupMsgs');
+
+  const placed = gs.reduce((n, g) => n + g.members.length, 0);
+  const left = state.results.length - placed;
+  if (left) note('groupMsgs', 'i', `${left} animal(s) have no group and are left out of the comparison.`);
+
+  const rows = GR.groupStatRows(gs);
+  $('groupTable').innerHTML =
+    '<tr><th>Group</th><th>Metric</th><th class="n">n</th><th class="n">mean</th>' +
+    '<th class="n">SD</th><th class="n">SEM</th></tr>' +
+    rows.map((r, i) => {
+      const first = i === 0 || rows[i - 1].Group !== r.Group;
+      const swatch = first
+        ? `<i class="gkey" style="background:${GROUP_COLORS[gs.findIndex((g) => g.name === r.Group) % GROUP_COLORS.length]}"></i>${esc(r.Group)}`
+        : '';
+      return `<tr><td>${swatch}</td><td>${esc(r.Metric)}</td><td class="n">${r.n}</td>` +
+             `<td class="n">${sig(r.Mean)}</td><td class="n">${isFinite(r.SD) ? sig(r.SD) : ''}</td>` +
+             `<td class="n">${isFinite(r.SEM) ? sig(r.SEM) : ''}</td></tr>`;
+    }).join('');
+
+  drawComparison(gs);
+}
+
+function drawComparison(gs) {
+  const names = gs.map((g) => g.name);
+  if (names.length < 2) {
+    $('cmpRow').hidden = true;
+    $('statsTable').innerHTML = '';
+    $('statsNote').textContent = '';
+    return;
+  }
+  $('cmpRow').hidden = false;
+  if (!names.includes(state.cmpA)) state.cmpA = names[0];
+  if (!names.includes(state.cmpB) || state.cmpB === state.cmpA) {
+    state.cmpB = names.find((n) => n !== state.cmpA);
+  }
+  for (const [id, cur] of [['cmpA', state.cmpA], ['cmpB', state.cmpB]]) {
+    $(id).innerHTML = names.map((n) =>
+      `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}</option>`).join('');
+  }
+
+  const A = gs.find((g) => g.name === state.cmpA);
+  const B = gs.find((g) => g.name === state.cmpB);
+  const rows = GR.compareGroups(A, B);
+  state.cmpRows = rows.map((r) => ({
+    Metric: r.Metric, GroupA: A.name, nA: r.nA, meanA: r.meanA, semA: r.semA,
+    GroupB: B.name, nB: r.nB, meanB: r.meanB, semB: r.semB,
+    Difference: r.diff, t: r.t, df: r.df, p_ttest: r.pT, U: r.U, p_MannWhitney: r.pU,
+  }));
+
+  $('statsTable').innerHTML =
+    `<tr><th>Metric</th><th class="n">${esc(A.name)}</th><th class="n">${esc(B.name)}</th>` +
+    '<th class="n">difference</th><th class="n">t (df)</th><th class="n">p, t-test</th>' +
+    '<th class="n">p, Mann-Whitney</th></tr>' +
+    rows.map((r) => {
+      const cell = (m, sem, n) => isFinite(m)
+        ? `${sig(m)}${isFinite(sem) ? ' ± ' + sig(sem) : ''} <span class="dim">(${n})</span>` : '';
+      const pc = (p) => isFinite(p)
+        ? `<td class="n${p < 0.05 ? ' sigp' : ''}">${p < 1e-4 ? p.toExponential(1) : p.toFixed(4)}</td>`
+        : '<td class="n"></td>';
+      return `<tr><td>${esc(r.Metric)}</td>` +
+             `<td class="n">${cell(r.meanA, r.semA, r.nA)}</td>` +
+             `<td class="n">${cell(r.meanB, r.semB, r.nB)}</td>` +
+             `<td class="n">${isFinite(r.diff) ? sig(r.diff) : ''}</td>` +
+             `<td class="n">${isFinite(r.t) ? r.t.toFixed(3) + ' (' + r.df.toFixed(1) + ')' : ''}</td>` +
+             pc(r.pT) + pc(r.pU) + '</tr>';
+    }).join('');
+
+  const anyExact = rows.some((r) => r.exact);
+  $('statsNote').textContent =
+    'Welch t-test and Mann-Whitney, run on the per-animal means, so n is animals rather than ' +
+    'timepoints. ' + (anyExact ? 'Mann-Whitney p values are exact at these sample sizes. ' : '') +
+    'No correction is applied for testing several metrics at once.';
+}
+
+['cmpA', 'cmpB'].forEach((id) => {
+  $(id).onchange = () => {
+    state[id] = $(id).value;
+    drawComparison(currentGroups());
+  };
+});
+
+$('dlGrpStats').onclick = () => {
+  const rows = GR.groupStatRows(currentGroups());
+  if (rows.length) save(new Blob([toCSV(rows)], { type: 'text/csv' }), 'group_stats.csv');
+};
+$('dlGrpTrace').onclick = () => {
+  const rows = GR.groupTraceRows(currentGroups());
+  if (rows.length) save(new Blob([toCSV(rows)], { type: 'text/csv' }), 'group_traces.csv');
+};
+$('dlGrpCmp').onclick = () => {
+  if (state.cmpRows && state.cmpRows.length) {
+    save(new Blob([toCSV(state.cmpRows)], { type: 'text/csv' }), 'group_comparison.csv');
+  }
+};
 
 // ---- publication figure ----
 const FIG_METRICS = [
@@ -259,11 +450,20 @@ function figOpts() {
 }
 
 function drawFigure() {
+  const gs = currentGroups();
+  $('figGroupsWrap').hidden = gs.length === 0;
+  if (!gs.length) $('figGroups').checked = false;
+  const asGroups = gs.length > 0 && $('figGroups').checked;
+
   const R = state.results[state.animal];
-  if (!R) { hide('figPanel'); return; }
+  if (!R && !asGroups) { hide('figPanel'); return; }
   show('figPanel');
 
-  const avail = FIG_METRICS.filter((m) => m[3](R));
+  const grouped = gs.flatMap((g) => g.members);
+  const avail = asGroups
+    ? FIG_METRICS.filter((m) => GR.METRICS.some((v) => v.key === m[0]) && grouped.some((r) => m[3](r)))
+    : FIG_METRICS.filter((m) => m[3](R));
+  if (!avail.length) { $('figPreview').innerHTML = ''; return; }
   state.figPanels = state.figPanels.filter((k) => avail.some((m) => m[0] === k));
   if (!state.figPanels.length) state.figPanels = [avail[0][0]];
 
@@ -280,7 +480,9 @@ function drawFigure() {
     };
   });
 
-  const panels = state.figPanels.map((k) => figPanel(R, k)).filter(Boolean);
+  const panels = (asGroups
+    ? state.figPanels.map((k) => groupFigPanel(gs, k))
+    : state.figPanels.map((k) => figPanel(R, k))).filter(Boolean);
   if (!panels.length) { $('figPreview').innerHTML = ''; return; }
 
   const o = figOpts();
@@ -292,9 +494,26 @@ function drawFigure() {
   state.figSvg = svg;
   state.figW = o.widthMm;
   state.figH = hMm;
+  state.figName = asGroups ? 'groups' : R.id;
   $('figSize').textContent =
-    `${o.widthMm} × ${hMm.toFixed(1)} mm, ${panels.length} panel${panels.length > 1 ? 's' : ''}. ` +
+    `${o.widthMm} × ${hMm.toFixed(1)} mm, ${panels.length} panel${panels.length > 1 ? 's' : ''}` +
+    (asGroups ? ', group mean ± SEM' : '') + '. ' +
     `SVG keeps text editable; PNG is flattened at the chosen resolution.`;
+}
+
+function groupFigPanel(gs, key) {
+  const m = GR.METRICS.find((v) => v.key === key);
+  const tr = GR.groupTraces(gs, key);
+  if (!m || !tr) return null;
+  const x = Array.from(tr.x);
+  return {
+    yLabel: m.yLabel, xLabel: 'Time (min)',
+    series: tr.series.map((sr) => ({
+      x, y: Array.from(sr.mean), lo: Array.from(sr.lo), hi: Array.from(sr.hi),
+      label: `${sr.name} (n=${sr.n})`,
+      color: GROUP_COLORS[gs.findIndex((g) => g.name === sr.name) % GROUP_COLORS.length],
+    })),
+  };
 }
 
 function figPanel(R, key) {
@@ -312,25 +531,23 @@ function figPanel(R, key) {
            series: [{ x: Array.from(d.x || R.time), y: Array.from(d.y), label: d.yLabel }] };
 }
 
-['figWidth','figHeight','figFont','figLine','figGrey','figGrid','figShared'].forEach((id) => {
+['figWidth','figHeight','figFont','figLine','figGrey','figGrid','figShared','figGroups'].forEach((id) => {
   $(id).addEventListener('change', drawFigure);
   $(id).addEventListener('input', drawFigure);
 });
 
 $('dlSvg').onclick = () => {
   if (!state.figSvg) return;
-  const R = state.results[state.animal];
-  save(new Blob([state.figSvg], { type: 'image/svg+xml' }), `${R.id}_figure.svg`);
+  save(new Blob([state.figSvg], { type: 'image/svg+xml' }), `${state.figName}_figure.svg`);
 };
 
 $('dlPngHi').onclick = async () => {
   if (!state.figSvg) return;
-  const R = state.results[state.animal];
   const dpi = parseInt($('figDpi').value, 10);
   $('dlPngHi').disabled = true;
   try {
     const blob = await FIG.toPNG(state.figSvg, state.figW, state.figH, dpi);
-    save(blob, `${R.id}_figure_${dpi}dpi.png`);
+    save(blob, `${state.figName}_figure_${dpi}dpi.png`);
   } catch (e) {
     note('resultMsgs', 'e', 'Could not export PNG: ' + esc(e.message));
   }
@@ -339,11 +556,10 @@ $('dlPngHi').onclick = async () => {
 
 // ---- downloads ----
 $('dlCsv').onclick = () =>
-  save(new Blob([toCSV(summaryRows(state.results))], { type: 'text/csv' }), 'summary.csv');
+  save(new Blob([toCSV(summaryRows(state.results, state.assign))], { type: 'text/csv' }), 'summary.csv');
 
-// Every timepoint, not just the per-animal averages.
 $('dlData').onclick = () => {
-  const rows = allTraceRows(state.results);
+  const rows = allTraceRows(state.results, state.assign);
   if (!rows.length) return;
   const name = state.results.length === 1 ? `${state.results[0].id}_data.csv` : 'all_animals_data.csv';
   save(new Blob([toCSV(rows)], { type: 'text/csv' }), name);
@@ -351,8 +567,8 @@ $('dlData').onclick = () => {
 
 $('dlPng').onclick = () => {
   if (!state.charts.length) return;
-  const R = state.results[state.animal];
-  chartsToPNG(state.charts, R.id).toBlob((b) => save(b, `${R.id}.png`));
+  const name = state.view === 'groups' ? 'groups' : state.results[state.animal].id;
+  chartsToPNG(state.charts, name).toBlob((b) => save(b, `${name}.png`));
 };
 
 function save(blob, name) {

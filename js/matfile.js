@@ -1,24 +1,8 @@
 (function (AK) {
 'use strict';
 
-// matfile.js — read MATLAB .mat files in the browser.
-//
-// MATLAB writes two completely different formats and lab folders usually hold
-// a mix of both:
-//   * v7.3  -- HDF5 underneath. Written when you use save(...,'-v7.3').
-//              Your LSI outputs are these.
-//   * v5/v7 -- MATLAB's own binary container, zlib-compressed. Written by a
-//              plain save(...) with no flag, which is what analyze_roi.m does.
-// Both are handled here, so it does not matter which one a file happens to be.
-//
-// Returns a flat object: { variableName: { data: Float64Array, shape: [r,c] } }
-// Struct variables are flattened to "structName.fieldName".
-
 let h5Ready = null;
 
-// h5wasm is loaded as a plain <script>, so it is on the window as `h5wasm`.
-// Loading it this way (rather than as a module) is what lets this page work
-// when opened straight off disk, where the browser blocks module imports.
 async function ensureH5() {
   if (typeof h5wasm === 'undefined') {
     throw new Error('HDF5 reader did not load. Check that vendor/h5wasm/h5wasm.js is present.');
@@ -29,7 +13,6 @@ async function ensureH5() {
 
 const isHDF5 = (bytes) =>
   bytes.length > 512 &&
-  // MATLAB puts its 128-byte header first, then the HDF5 signature at 512.
   (sig(bytes, 512) || sig(bytes, 0));
 
 function sig(b, at) {
@@ -50,8 +33,7 @@ async function readMat(arrayBuffer, fileName = 'file.mat') {
   return readV5(bytes);
 }
 
-// ---------------------------------------------------------------------------
-// v7.3 / HDF5
+// ---- v7.3, HDF5 ----
 async function readHDF5(bytes, fileName) {
   const H = await ensureH5();
   const tmp = `/tmp_${Math.random().toString(36).slice(2)}.mat`;
@@ -76,22 +58,20 @@ function walkH5(group, prefix, out, depth = 0) {
     try { item = group.get(key); } catch { continue; }
     const name = prefix ? `${prefix}.${key}` : key;
 
-    if (item && typeof item.keys === 'function') {  // a group -> struct
+    if (item && typeof item.keys === 'function') {
       walkH5(item, name, out, depth + 1);
       continue;
     }
     if (!item || item.value == null) continue;
 
     const v = item.value;
-    if (typeof v === 'string' || Array.isArray(v)) continue;   // char data etc.
+    if (typeof v === 'string' || Array.isArray(v)) continue;
     const shape = item.shape || [v.length];
-    // MATLAB stores column-major; HDF5 reports the reversed shape.
     out[name] = { data: Float64Array.from(v), shape: [...shape].reverse() };
   }
 }
 
-// ---------------------------------------------------------------------------
-// v5 / v7
+// ---- v5 and v7 ----
 const miINT8=1, miUINT8=2, miINT16=3, miUINT16=4, miINT32=5, miUINT32=6,
       miSINGLE=7, miDOUBLE=9, miINT64=12, miUINT64=13, miMATRIX=14,
       miCOMPRESSED=15, miUTF8=16;
@@ -122,9 +102,8 @@ async function readV5(bytes) {
       parseMatrix(dv, body, nbytes, little, out, '');
     }
     pos = body + nbytes;
-    // Ordinary data elements are padded out to an 8-byte boundary, but
-    // compressed elements are NOT -- the next one starts immediately. Padding
-    // them anyway makes every variable after the first unreadable.
+    // Compressed elements are not padded to 8 bytes. Padding them anyway makes
+    // every variable after the first unreadable.
     if (type !== miCOMPRESSED) pos += (8 - (pos % 8)) % 8;
   }
   return out;
@@ -132,7 +111,6 @@ async function readV5(bytes) {
 
 function readTag(dv, pos, little) {
   const w = dv.getUint32(pos, little);
-  // Small-data-element format packs nbytes into the upper 16 bits.
   if ((w >>> 16) !== 0) {
     return { type: w & 0xffff, nbytes: w >>> 16, headerLen: 4, small: true };
   }
@@ -142,14 +120,12 @@ function readTag(dv, pos, little) {
 function parseMatrix(dv, pos, nbytes, little, out, prefix) {
   const end = pos + nbytes;
 
-  // 1. array flags
   let t = readTag(dv, pos, little);
   let p = pos + t.headerLen;
   const flagsWord = dv.getUint32(p, little);
   const cls = flagsWord & 0xff;
   p = advance(p, t.nbytes);
 
-  // 2. dimensions
   t = readTag(dv, p, little);
   p += t.headerLen;
   const nd = t.nbytes / 4;
@@ -157,7 +133,6 @@ function parseMatrix(dv, pos, nbytes, little, out, prefix) {
   for (let i = 0; i < nd; i++) dims.push(dv.getInt32(p + i * 4, little));
   p = advance(p, t.nbytes);
 
-  // 3. name
   t = readTag(dv, p, little);
   p += t.headerLen;
   let name = '';
@@ -167,12 +142,10 @@ function parseMatrix(dv, pos, nbytes, little, out, prefix) {
   const full = prefix ? `${prefix}.${name}` : name;
 
   if (cls === mxSTRUCT) {
-    // field name length
     t = readTag(dv, p, little);
     p += t.headerLen;
     const fieldLen = dv.getInt32(p, little);
     p = advance(p, t.nbytes);
-    // field names
     t = readTag(dv, p, little);
     p += t.headerLen;
     const nFields = t.nbytes / fieldLen;
@@ -187,7 +160,6 @@ function parseMatrix(dv, pos, nbytes, little, out, prefix) {
       names.push(s);
     }
     p = advance(p, t.nbytes);
-    // each field is a miMATRIX
     for (let i = 0; i < nFields && p < end; i++) {
       const ft = readTag(dv, p, little);
       const fBody = p + ft.headerLen;
@@ -199,16 +171,14 @@ function parseMatrix(dv, pos, nbytes, little, out, prefix) {
     return;
   }
 
-  if (cls === mxCHAR || cls === mxCELL) return;      // not needed downstream
+  if (cls === mxCHAR || cls === mxCELL) return;
 
-  // 4. numeric payload
   t = readTag(dv, p, little);
   p += t.headerLen;
   const data = readNumeric(dv, p, t.type, t.nbytes, little);
   if (data) out[full] = { data, shape: dims };
 }
 
-// Same as parseMatrix but the name comes from the parent struct's field list.
 function parseMatrixNamed(dv, pos, nbytes, little, out, prefix, fieldName) {
   const sub = {};
   parseMatrix(dv, pos, nbytes, little, sub, '');
@@ -244,15 +214,12 @@ function readNumeric(dv, p, type, nbytes, little) {
 }
 
 async function inflate(raw) {
-  // zlib-wrapped deflate. Available natively in browsers and Node 18+.
   const ds = new DecompressionStream('deflate');
   const stream = new Blob([raw]).stream().pipeThrough(ds);
   const buf = await new Response(stream).arrayBuffer();
   return new Uint8Array(buf);
 }
 
-// ---------------------------------------------------------------------------
-// Pull a named variable out, tolerating the several spellings your files use.
 function pickVariable(vars, candidates) {
   const keys = Object.keys(vars);
   for (const want of candidates) {

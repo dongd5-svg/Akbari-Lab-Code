@@ -15,7 +15,7 @@ await page.goto('file://' + join(ROOT, 'index.html'));
 await page.setInputFiles('#picker', [
   join(ROOT,'test/matfiles/Subject 101_Baseline.mat'),
   join(ROOT,'test/matfiles/Subject 101_roi.mat')]);
-await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 3, null, {timeout:60000});
+await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 2, null, {timeout:60000});
 await page.click('#run');
 await page.waitForSelector('#figPanel:not(.hide)', { timeout: 60000 });
 

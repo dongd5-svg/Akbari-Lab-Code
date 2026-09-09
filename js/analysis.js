@@ -1,10 +1,6 @@
 (function (AK) {
 'use strict';
 
-// analysis.js — turn a set of dropped files into results.
-//
-// Works out which file is which, pairs them by animal, and runs the pipeline.
-
 var readMat = AK.readMat, pickVariable = AK.pickVariable;
 var analyze = AK.analyze, DEFAULTS = AK.DEFAULTS;
 
@@ -12,7 +8,6 @@ const LSI_TIME = ['time', 'CBFrawtime', 'CBFtime'];
 const LSI_FLOW = ['mean_data', 'CBFraw', 'sfi'];
 const SFDI_NEED = ['MetabolismTime', 'hbo2', 'hbr', 'hbtot', 'scatter730'];
 
-// Pull an animal label out of a filename: "Mouse 272_Baseline_LSI.mat" -> "Mouse272"
 function animalIdFromName(fileName) {
   const stem = fileName.replace(/\.mat$/i, '');
   const m = stem.match(/((?:mouse|rat|animal|subject)\s*[-_]?\s*\d+[a-z]?)/i);
@@ -22,7 +17,6 @@ function animalIdFromName(fileName) {
   return stem.slice(0, 24);
 }
 
-// Inspect one file and decide what it holds.
 async function inspectFile(file) {
   const buf = await file.arrayBuffer();
   const vars = await readMat(buf, file.name);
@@ -64,7 +58,6 @@ async function inspectFile(file) {
   return info;
 }
 
-// Group inspected files into animals: one LSI file, optionally one SFDI file.
 function pairFiles(infos) {
   const byAnimal = new Map();
   for (const f of infos) {
@@ -75,9 +68,6 @@ function pairFiles(infos) {
     else if (f.kind === 'sfdi' && !e.sfdiFile) e.sfdiFile = f;
   }
 
-  // A single SFDI file with no matching LSI partner is common when the naming
-  // differs (e.g. "roi1.mat"). If exactly one animal lacks SFDI and exactly one
-  // orphan SFDI exists, pair them rather than dropping both.
   const entries = [...byAnimal.values()];
   const orphanSfdi = entries.filter((e) => e.sfdiFile && !e.lsiFile);
   const needSfdi = entries.filter((e) => e.lsiFile && !e.sfdiFile);
@@ -89,7 +79,6 @@ function pairFiles(infos) {
   return [...byAnimal.values()].filter((e) => e.lsiFile);
 }
 
-// Run the pipeline over every paired animal.
 function runAll(pairs, opts) {
   const results = [];
   const problems = [];
@@ -114,9 +103,11 @@ function runAll(pairs, opts) {
   return { results, problems };
 }
 
-function summaryRows(results) {
+function summaryRows(results, assign) {
+  const grouped = assign && results.some((R) => (assign[R.id] || '').trim());
   return results.map((R) => ({
     Animal: R.id,
+    ...(grouped ? { Group: (assign[R.id] || '').trim() } : {}),
     Points: R.time.length,
     SpikesRemoved: R.nDespiked,
     Oxygen: R.hasSFDI ? 'yes' : 'no',
@@ -137,7 +128,6 @@ function meanOf(a) {
 
 function toCSV(rows) {
   if (!rows.length) return '';
-  // Animals without SFDI have fewer columns, so take the union in first-seen order.
   const seen = new Set(), cols = [];
   for (const r of rows) for (const k in r) if (!seen.has(k)) { seen.add(k); cols.push(k); }
   const esc = (v) => (v === undefined || v === null ? ''
@@ -146,22 +136,20 @@ function toCSV(rows) {
   return [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');
 }
 
-// Pad or trim to n points the same way the pipeline does.
 function matchLen(v, n) {
   const out = new Float64Array(n);
   for (let i = 0; i < n; i++) out[i] = i < v.length ? v[i] : v[v.length - 1];
   return out;
 }
 
-// Every timepoint of one animal, one row each. These are the same numbers you
-// would read out of the struct in MATLAB, just laid out for a spreadsheet.
-function traceRows(R) {
+function traceRows(R, group) {
   const n = R.time.length;
   const flow = matchLen(R.CBFspline, n);
   const rows = new Array(n);
   for (let i = 0; i < n; i++) {
     const r = {
       Animal: R.id,
+      ...(group ? { Group: group } : {}),
       Time_min: R.time[i],
       CBF_SFI: flow[i],
       rCBF: R.rCBF[i],
@@ -181,9 +169,13 @@ function traceRows(R) {
   return rows;
 }
 
-function allTraceRows(results) {
+function allTraceRows(results, assign) {
+  const grouped = assign && results.some((R) => (assign[R.id] || '').trim());
   const out = [];
-  for (const R of results) for (const r of traceRows(R)) out.push(r);
+  for (const R of results) {
+    const g = grouped ? (assign[R.id] || '').trim() : '';
+    for (const r of traceRows(R, g)) out.push(r);
+  }
   return out;
 }
 

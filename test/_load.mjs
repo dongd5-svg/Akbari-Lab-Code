@@ -2,7 +2,7 @@
 import { readFileSync } from 'fs';
 import vm from 'vm';
 
-const files = ['js/spline.js','js/pipeline.js','js/matfile.js'];
+const files = ['js/spline.js','js/pipeline.js','js/matfile.js','js/groups.js'];
 const ctx = { console, TextDecoder, TextEncoder, DataView, Float64Array, Uint8Array, Uint32Array,
   Int32Array, Math, Number, JSON, Object, Array, String, Boolean, Error, isFinite, parseFloat,
   performance, Blob, Response, DecompressionStream, URL, setTimeout, BigInt };

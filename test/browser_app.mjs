@@ -25,7 +25,7 @@ page.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
 page.on('pageerror', e => errs.push(String(e)));
 
 let fail = 0;
-const ok = (c, m, extra='') => { console.log(`  ${c?'PASS':'FAIL'}  ${m}${extra?'  — '+extra:''}`); if(!c) fail++; };
+const ok = (c, m, extra='') => { console.log(`  ${c?'PASS':'FAIL'}  ${m}${extra?'  - '+extra:''}`); if(!c) fail++; };
 
 await page.goto(`${base}/index.html`);
 console.log('\n=== App UI ===');
@@ -33,7 +33,7 @@ console.log('\n=== App UI ===');
 // --- 1. one LSI + one SFDI ---
 await page.setInputFiles('#picker', [M('Subject 101_Baseline.mat'), M('Subject 101_roi.mat')]);
 await page.waitForSelector('#settingsPanel:not(.hide)', { timeout: 30000 });
-await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 3, null, {timeout:30000});
+await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 2, null, {timeout:30000});
 const tags = await page.$$eval('#fileTable tr td:nth-child(2)', els => els.map(e => e.textContent.trim()));
 ok(tags.includes('flow') && tags.includes('haemoglobin'), 'both file types detected', tags.join(' / '));
 ok((await page.textContent('#runStatus')).includes('with haemoglobin'), 'pairing recognised', await page.textContent('#runStatus'));
@@ -63,7 +63,7 @@ await page.screenshot({ path: 'test/shot_results.png', fullPage: true });
 
 // --- 2. flow-only animal added ---
 await page.setInputFiles('#picker', [M('Subject 102_Baseline_LSI.mat')]);
-await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 4, null, {timeout:30000});
+await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 3, null, {timeout:30000});
 await page.click('#run');
 await page.waitForFunction(() => document.querySelectorAll('#summary tr').length >= 3, null, {timeout:30000});
 const rows2 = await page.$$eval('#summary tr', tr => tr.slice(1).map(r => [...r.querySelectorAll('td')].map(c=>c.textContent.trim())));
@@ -85,6 +85,23 @@ const csvPath = await dl.path();
 const csv = await readFile(csvPath, 'utf8');
 ok(csv.split('\n').length >= 3 && csv.includes('Animal'), 'CSV downloads with data',
    csv.split('\n')[0].slice(0, 60));
+
+// --- 4b. per-timepoint data CSV ---
+const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('#dlData')]);
+const data = await readFile(await dl2.path(), 'utf8');
+const dLines = data.trim().split('\n');
+const dCols = dLines[0].split(',');
+const nPts = await page.evaluate(() =>
+  window.__state ? 0 : [...document.querySelectorAll('#summary tr')].slice(1)
+    .reduce((s, r) => s + parseInt(r.children[1].textContent, 10), 0));
+ok(dCols[0] === 'Animal' && dCols.includes('Time_min') && dCols.includes('rCBF'),
+   'data CSV has per-timepoint columns', dLines[0].slice(0, 70));
+ok(dLines.length - 1 === nPts, 'one row per timepoint, all animals',
+   `${dLines.length - 1} rows, summary says ${nPts}`);
+ok(dCols.includes('rCMRO2') && dCols.includes('HbR_uM'),
+   'oxygen columns present when SFDI was supplied');
+ok(dLines[1].split(',').length === dCols.length && /^"?[A-Za-z]/.test(dLines[1]),
+   'rows are well formed', dLines[1].slice(0, 70));
 
 // --- 5. dark mode ---
 await page.click('#theme');

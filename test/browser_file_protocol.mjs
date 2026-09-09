@@ -29,7 +29,7 @@ await page.setInputFiles('#picker', [
   join(ROOT, 'test/matfiles/Subject 101_Baseline.mat'),
   join(ROOT, 'test/matfiles/Subject 101_roi.mat'),
 ]);
-await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 3, null, { timeout: 60000 });
+await page.waitForFunction(() => document.querySelectorAll('#fileTable tr').length >= 2, null, { timeout: 60000 });
 const kinds = await page.$$eval('#fileTable tr td:nth-child(2)', (t) => t.map((x) => x.innerText.trim()));
 ok(kinds.includes('flow') && kinds.includes('haemoglobin'), 'both .mat files read from disk', kinds.join(' / '));
 

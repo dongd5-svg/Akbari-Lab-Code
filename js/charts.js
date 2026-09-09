@@ -1,14 +1,36 @@
 (function (AK) {
 'use strict';
 
-// charts.js — line charts for the result traces.
-//
-// Two series maximum per chart, drawn thin, with a crosshair and a value
-// readout on hover. Colours are a colourblind-safe pair and are only ever used
-// to distinguish series, never to encode magnitude.
-
-
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// drawClear, so the band ends up under the grid and curves rather than over them.
+function bandPlugin(bands) {
+  return { hooks: { drawClear: [(u) => {
+    const ctx = u.ctx, xs = u.data[0];
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height);
+    ctx.clip();
+    for (const b of bands) {
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < xs.length; i++) {
+        if (!isFinite(b.hi[i])) continue;
+        const x = u.valToPos(xs[i], 'x', true), y = u.valToPos(b.hi[i], 'y', true);
+        if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
+      }
+      if (!started) continue;
+      for (let i = xs.length - 1; i >= 0; i--) {
+        if (!isFinite(b.lo[i])) continue;
+        ctx.lineTo(u.valToPos(xs[i], 'x', true), u.valToPos(b.lo[i], 'y', true));
+      }
+      ctx.closePath();
+      ctx.fillStyle = b.color;
+      ctx.fill();
+    }
+    ctx.restore();
+  }] } };
+}
 
 function makeChart(el, { title, subtitle, x, series, yLabel }) {
   const card = document.createElement('div');
@@ -26,12 +48,29 @@ function makeChart(el, { title, subtitle, x, series, yLabel }) {
 
   const width = () => Math.max(280, card.clientWidth - 24);
 
+  const bands = series.filter((s) => s.band).map((s) => ({
+    lo: s.band.lo, hi: s.band.hi, color: fade(s.color, 0.16),
+  }));
+  let bLo = Infinity, bHi = -Infinity;
+  for (const b of bands) {
+    for (let i = 0; i < b.lo.length; i++) {
+      if (isFinite(b.lo[i]) && b.lo[i] < bLo) bLo = b.lo[i];
+      if (isFinite(b.hi[i]) && b.hi[i] > bHi) bHi = b.hi[i];
+    }
+  }
+
   const opts = {
     width: width(),
     height: 210,
     padding: [8, 12, 0, 0],
     cursor: { drag: { x: true, y: false }, points: { size: 6 } },
-    scales: { x: { time: false } },
+    plugins: bands.length ? [bandPlugin(bands)] : [],
+    scales: {
+      x: { time: false },
+      y: bands.length
+        ? { range: (u, lo, hi) => uPlot.rangeNum(Math.min(lo, bLo), Math.max(hi, bHi), 0.1, true) }
+        : {},
+    },
     axes: [
       axis('Time (min)'),
       axis(yLabel, true),
@@ -58,9 +97,6 @@ function makeChart(el, { title, subtitle, x, series, yLabel }) {
 function axis(label, isY = false) {
   return {
     label,
-    // Default tick labels collapse to "0" for values like 2e-5, which is what
-    // aCBF actually is. Fall back to exponential when the range is very small
-    // or very large.
     values: (u, ticks) => {
       const mag = Math.max(...ticks.map((t) => Math.abs(t)).filter((v) => v > 0), 0);
       if (mag > 0 && (mag < 1e-3 || mag >= 1e5)) {
@@ -80,6 +116,16 @@ function axis(label, isY = false) {
   };
 }
 
+function fade(c, alpha) {
+  const m = String(c).trim().match(/^#([0-9a-f]{6})$/i);
+  if (m) {
+    const n = parseInt(m[1], 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+  }
+  const rgb = String(c).match(/(\d+)\D+(\d+)\D+(\d+)/);
+  return rgb ? `rgba(${rgb[1]},${rgb[2]},${rgb[3]},${alpha})` : `rgba(120,120,120,${alpha})`;
+}
+
 function fmt(v) {
   const a = Math.abs(v);
   if (a === 0) return '0';
@@ -87,7 +133,6 @@ function fmt(v) {
   return v.toPrecision(6).replace(/\.?0+$/, '');
 }
 
-// Stack every visible chart into one PNG for download.
 function chartsToPNG(charts, titleText) {
   const gap = 14, pad = 18, headH = titleText ? 34 : 0;
   const cs = charts.map((c) => c.uplot.ctx.canvas);

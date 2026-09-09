@@ -1,13 +1,9 @@
 (function (AK) {
 'use strict';
 
-// pipeline.js — CMRO2 analysis, ported from the verified MATLAB implementation.
-//
-// Arithmetic is written in the SAME ORDER as the MATLAB source, not simplified.
-// Reordering floating-point operations changes results in the last bits, and
-// because the Db fit picks from a discrete grid, a last-bit difference can flip
-// a whole sample to the neighbouring grid value. test/ checks every output of
-// this file against MATLAB reference values.
+// Arithmetic order follows the MATLAB source. Reordering changes the last bits,
+// and the Db fit picks from a discrete grid, so a last-bit difference can move a
+// sample onto the neighbouring grid point.
 
 var spline = AK.spline;
 
@@ -31,16 +27,9 @@ const DEFAULTS = {
   baselineWin: 0.5,
 };
 
-// Haemoglobin absorption at 809 nm, per uM per mm.
-// Prahl tabulated molar extinction x ln(10), interpolated to 1 nm.
-// These are the exact values MATLAB's hbSpectra() returns at index 560.
 const E_HBO2_809 = 1980.6836969935;
 const E_HB_809   = 1658.3230363516;
 
-// ---------------------------------------------------------------------------
-// Replace flagged samples with the last preceding good value.
-// A run of consecutive bad samples all collapse to the last good value before
-// the run -- this is a forward fill, not a shift.
 function forwardFillOutliers(x, isBad) {
   const n = x.length;
   const out = Float64Array.from(x);
@@ -53,7 +42,6 @@ function forwardFillOutliers(x, isBad) {
     if (!isBad[i]) { lastGood = i; continue; }
     if (lastGood >= 0) out[i] = out[lastGood];
   }
-  // A leading run of bad samples has no preceding good value; back-fill it.
   if (isBad[0]) {
     let firstGood = 0;
     while (firstGood < n && isBad[firstGood]) firstGood++;
@@ -62,8 +50,6 @@ function forwardFillOutliers(x, isBad) {
   return { x: out, n: nReplaced };
 }
 
-// ---------------------------------------------------------------------------
-// MATLAB's  base:step:limit  for the cases used here.
 function colon(base, step, limit) {
   const n = Math.floor((limit - base) / step + 1e-10) + 1;
   const v = new Float64Array(n);
@@ -77,14 +63,11 @@ function mean(a, i0, i1) {
   return s / (i1 - i0 + 1);
 }
 
-// ---------------------------------------------------------------------------
-// Clean, resample and baseline-normalise an LSI blood-flow trace.
 function prepareCBF(time, sfi, eventTime, opt = {}) {
   const o = { ...DEFAULTS, ...opt };
   const N = time.length;
   if (sfi.length !== N) throw new Error(`time has ${N} samples but flow has ${sfi.length}`);
 
-  // Trim to the sample nearest t = 0.
   let iStart = 0, best = Infinity;
   for (let i = 0; i < N; i++) {
     const a = Math.abs(time[i]);
@@ -99,7 +82,6 @@ function prepareCBF(time, sfi, eventTime, opt = {}) {
     CBFrawtime[i] = time[iStart + i] - t0;
   }
 
-  // Remove artifacts: high pass then low pass, forward-filling each.
   const badHi = new Uint8Array(m);
   for (let i = 0; i < m; i++) badHi[i] = Math.abs(CBFraw[i]) > o.cbfHighThreshold ? 1 : 0;
   const r1 = forwardFillOutliers(CBFraw, badHi);
@@ -115,7 +97,6 @@ function prepareCBF(time, sfi, eventTime, opt = {}) {
   const CBFtime = colon(0, 1 / o.resampleRate, tEnd);
   const CBFspline = spline(CBFrawtime, work, CBFtime);
 
-  // Baseline window, 1-based in MATLAB -> 0-based here.
   let iLo = Math.round((eventTime - o.baselineWin) * o.resampleRate) + 1;
   let iHi = Math.round(eventTime * o.resampleRate) + 1;
   iLo = Math.max(iLo, 1);
@@ -138,10 +119,6 @@ function prepareCBF(time, sfi, eventTime, opt = {}) {
            baseline, baselineIdx: [iLo, iHi], nDespiked, shortBaseline };
 }
 
-// ---------------------------------------------------------------------------
-// Fit the Brownian diffusion coefficient from speckle contrast.
-// Grid search; ties resolve to the smallest Db, matching MATLAB's strict
-// `if cost < cost_min`.
 function fitDb(Kexp, musp, cthbo2, cthbr, opt = {}) {
   const o = { ...DEFAULTS, ...opt };
   const N = Kexp.length;
@@ -218,7 +195,6 @@ function fitDb(Kexp, musp, cthbo2, cthbr, opt = {}) {
            info: { grid, nDb, unconverged, atEdge } };
 }
 
-// ---------------------------------------------------------------------------
 function matchLength(v, n) {
   const out = new Float64Array(n);
   const m = v.length;
@@ -226,8 +202,6 @@ function matchLength(v, n) {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Full analysis for one animal. `sfdi` may be null -> flow-only result.
 function analyze(lsi, sfdi, eventTime, opt = {}) {
   const o = { ...DEFAULTS, ...opt };
   const cbf = prepareCBF(lsi.time, lsi.sfi, eventTime, o);
@@ -274,7 +248,6 @@ function analyze(lsi, sfdi, eventTime, opt = {}) {
     aCMRO2[i] = 60 * fit.Db[i] * hb * (fit.deltaFx1[i] * fit.deltaFx1[i]);
   }
 
-  // Baseline indices on the SFDI grid.
   let i1 = Math.round((eventTime - o.baselineWin) * o.resampleRate) + 1;
   let i2 = Math.round(eventTime * o.resampleRate) + 1;
   i1 = Math.max(i1, 1);
