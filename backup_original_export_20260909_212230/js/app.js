@@ -558,47 +558,12 @@ $('dlPngHi').onclick = async () => {
 $('dlCsv').onclick = () =>
   save(new Blob([toCSV(summaryRows(state.results, state.assign))], { type: 'text/csv' }), 'summary.csv');
 
-$('dlData').onclick = async () => {
-  if (document.querySelector('input[name="exportFormat"]:checked').value === 'xlsx') return downloadExcel('raw', $('dlData'));
-  try {
-    const layout = document.querySelector('input[name="exportLayout"]:checked').value;
-    const rows = AK.exportDataRows(state.results, state.assign, 'raw', layout, $('exportByGroup').checked);
-    if (!rows.length) return;
-    const prefix = state.results.length === 1 ? state.results[0].id : 'all_animals';
-    const name = `${prefix}_raw_${layout}.csv`;
-    save(new Blob([toCSV(rows)], { type: 'text/csv' }), name);
-  } catch (err) {
-    note('resultMsgs', 'e', esc(err.message));
-  }
-};
-
-$('dlProcessed').onclick = async () => {
-  if (document.querySelector('input[name="exportFormat"]:checked').value === 'xlsx') return downloadExcel('processed', $('dlProcessed'));
-  const layout = document.querySelector('input[name="exportLayout"]:checked').value;
-  const rows = AK.exportDataRows(state.results, state.assign, 'processed', layout, $('exportByGroup').checked);
+$('dlData').onclick = () => {
+  const rows = allTraceRows(state.results, state.assign);
   if (!rows.length) return;
-  const prefix = state.results.length === 1 ? state.results[0].id : 'all_animals';
-  save(new Blob([toCSV(rows)], { type: 'text/csv' }), `${prefix}_processed_${layout}.csv`);
+  const name = state.results.length === 1 ? `${state.results[0].id}_data.csv` : 'all_animals_data.csv';
+  save(new Blob([toCSV(rows)], { type: 'text/csv' }), name);
 };
-
-async function downloadExcel(kind, button) {
-  if (!state.results.length) return;
-  const label=button.textContent;
-  button.disabled=true; button.textContent='Preparing workbook…';
-  try {
-    await new Promise(resolve=>setTimeout(resolve,30));
-    const blob=await AK.exportExcel(state.results,state.assign,kind);
-    save(blob,`${state.results.length===1?state.results[0].id:'all_animals'}_${kind}.xlsx`);
-  } catch(err) { note('resultMsgs','e',esc(err.message)); }
-  finally {button.disabled=false;button.textContent=label;}
-}
-document.querySelectorAll('input[name="exportFormat"]').forEach(input=>{
-  input.onchange=()=>{
-    const csv=input.value==='csv'&&input.checked;
-    $('csvLayout').classList.toggle('hide',!csv);
-    $('excelHint').classList.toggle('hide',csv);
-  };
-});
 
 $('dlPng').onclick = () => {
   if (!state.charts.length) return;

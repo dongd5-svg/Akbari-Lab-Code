@@ -72,26 +72,9 @@
 
     <section id="resultsPanel" class="hide">
       <h2>Results <span class="sp">
-        <button id="dlPng">Save plot</button>
+        <button id="dlCsv">Summary CSV</button><button id="dlData">Data CSV</button><button id="dlPng">PNG</button>
       </span></h2>
       <div class="in">
-        <div class="downloads" aria-label="Download CSV files">
-          <button id="dlData">Download raw data</button>
-          <button id="dlProcessed">Download processed data</button>
-          <button id="dlCsv">Summary CSV</button>
-        </div>
-        <fieldset class="export-layout">
-          <legend>File format</legend>
-          <label><input type="radio" name="exportFormat" value="xlsx" checked> Excel workbook</label>
-          <label><input type="radio" name="exportFormat" value="csv"> CSV</label>
-        </fieldset>
-        <p id="excelHint" class="download-note">Excel includes a summary and a sheet for each group, with animals side by side. Every recording keeps its own timestamps and full length.</p>
-        <fieldset id="csvLayout" class="export-layout hide">
-          <legend>Data layout</legend>
-          <label><input type="radio" name="exportLayout" value="wide" checked> Side by side</label>
-          <label><input type="radio" name="exportLayout" value="stacked"> Stacked rows</label>
-          <label><input type="checkbox" id="exportByGroup" checked> Arrange by group</label>
-        </fieldset>
         <div id="resultMsgs"></div>
         <div class="sx"><table id="summary"></table></div>
       </div>
@@ -188,7 +171,6 @@
 <script src="js/charts.js"></script>
 <script src="js/figure.js"></script>
 <script src="js/analysis.js"></script>
-<script src="js/excel.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

@@ -194,19 +194,6 @@ section > h2 .sp { flex-wrap: wrap; }
 section > .in { padding: 12px; }
 .downloads { display: flex; flex-wrap: wrap; gap: 8px; }
 .download-note { margin: 8px 0 16px; color: var(--ink-2); font-size: 12px; }
-.export-layout { display: flex; flex-wrap: wrap; gap: 10px 20px; border: 0; padding: 0; margin: 14px 0 0; }
-.export-layout legend { font-size: 12px; font-weight: 600; margin-bottom: 6px; padding: 0; }
-.export-layout label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); }
-.export-layout input { margin: 0; accent-color: var(--blue); }
-.work { background: var(--alt); }
-.rail { background: var(--panel); }
-section > h2 { background: var(--panel); font-size: 13px; }
-#drop { background: var(--panel); padding: 24px 12px; }
-#resultsPanel .downloads { padding-bottom: 12px; border-bottom: 1px solid var(--line-2); }
-#dlData { border-color: var(--ink-2); font-weight: 600; }
-#dlCsv { margin-left: auto; color: var(--ink-2); }
-th { padding-top: 8px; padding-bottom: 8px; }
-td { padding-top: 7px; padding-bottom: 7px; }
 button:focus-visible, select:focus-visible, input:focus-visible, #drop:focus-visible {
   outline: 2px solid var(--blue); outline-offset: 3px;
 }

@@ -1,0 +1,78 @@
+(function (AK) {
+'use strict';
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const col = n => { let s=''; for(n++;n;n=Math.floor((n-1)/26)) s=String.fromCharCode(65+(n-1)%26)+s; return s; };
+const xml = s => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+s;
+const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const cell = (r,c,v,style=0) => v == null ? '' : `<c r="${col(c)}${r}" s="${style}"${typeof v==='number' && isFinite(v) ? `><v>${v}</v>` : ` t="inlineStr"><is><t xml:space="preserve">${esc(typeof v==='number'?'':v)}</t></is>`}</c>`;
+const labels = {Time_min:'Time (min)',CBF_SFI:'Flow (SFI)',rCBF:'Relative CBF',aCBF_Db_mm2_per_s:'Db (mm²/s)',aCMRO2_umol_per_min:'CMRO₂ (µmol/min)',rCMRO2:'Relative CMRO₂',rCBF_over_rCMRO2:'CBF / CMRO₂',HbO2_uM:'HbO₂ (µM)',HbR_uM:'HbR (µM)',HbTot_uM:'Total Hb (µM)',musp730_per_mm:'Scattering (1/mm)'};
+
+function makeSheets(results, assign, kind) {
+  const summary = AK.summaryRows(results, assign).map((r,i)=>[r.Animal,(assign[r.Animal]||'').trim()||'Ungrouped',results[i].originalSFI.length,r.Points,r.mean_rCBF,r.mean_rCMRO2,r.mean_aCBF,r.mean_aCMRO2,r.Oxygen,results[i].sourceLSI||'']);
+  const sheets=[{name:'Summary',rows:[['Animal','Group','Raw frames','Processed points','Mean relative CBF','Mean relative CMRO₂','Mean Db (mm²/s)','Mean CMRO₂ (µmol/min)','Oxygen data','Source recording'],...summary],widths:[20,20,16,20,22,25,22,28,18,46],freeze:1,merge:[],summary:true}];
+  const groups = new Map();
+  results.forEach(r=>{const g=(assign[r.id]||'').trim()||'Ungrouped';if(!groups.has(g)) groups.set(g,[]);groups.get(g).push(r);});
+  const used=new Set(['summary','all groups']);
+  for(const [group,animals] of groups) {
+    let base=group.replace(/[\\/?*\[\]:]/g,' ').replace(/^'+|'+$/g,'').trim()||'Data';base=base.slice(0,31);
+    let name=base, i=2;while(used.has(name.toLowerCase())) {const suffix=' ('+i+++')';name=base.slice(0,31-suffix.length)+suffix;}used.add(name.toLowerCase());
+    const blocks=animals.map(r=>{const rows=kind==='raw'?AK.originalRows([r]):AK.traceRows(r);const keys=Object.keys(rows[0]||{}).filter(k=>k!=='Animal'&&k!=='Group');return {r,rows,keys};});
+    const widths=[],headers=[],merges=[],styles=[];let c=0;
+    for(let b=0;b<blocks.length;b++) {const block=blocks[b]; if(b){widths.push(3);headers.push('');styles.push(0);c++;}const start=c;for(const k of block.keys){widths.push(k==='Time_min'?17:22);headers.push(labels[k]||k);styles.push(5+b%3);c++;}if(c>start+1)merges.push(`${col(start)}2:${col(c-1)}2`);block.start=start;}
+    if(c>16384)throw new Error('Too many columns for Excel. Export fewer animals together or use CSV.');
+    const n=Math.max(0,...blocks.map(b=>b.rows.length));if(n+3>1048576)throw new Error('This recording exceeds Excel’s row limit. Use CSV for the full recording.');
+    sheets.push({name,blocks,widths,headers,styles,n,freeze:3,merge:[`A1:${col(c-1)}1`,...merges],title:group});
+  }
+  if (groups.size) {
+    const combined={name:'All groups',blocks:[],widths:[],headers:[],styles:[],n:0,freeze:3,merge:[],groupHeaders:[]};
+    for (const s of sheets.slice(1)) {
+      if(combined.widths.length) {
+        combined.widths.push(4);combined.headers.push('');combined.styles.push(0);
+      }
+      const offset=combined.widths.length;
+      combined.groupHeaders.push({start:offset,label:s.title});
+      combined.widths.push(...s.widths);combined.headers.push(...s.headers);combined.styles.push(...s.styles);
+      combined.merge.push(`${col(offset)}1:${col(combined.widths.length-1)}1`);
+      for(const b of s.blocks) {
+        const start=offset+b.start;
+        combined.blocks.push({...b,start});
+        if(b.keys.length>1)combined.merge.push(`${col(start)}2:${col(start+b.keys.length-1)}2`);
+      }
+      combined.n=Math.max(combined.n,s.n);
+    }
+    if(combined.widths.length>16384)throw new Error('The combined sheet exceeds Excel’s column limit. Export fewer animals together or use CSV.');
+    sheets.push(combined);
+  }
+  return sheets;
+}
+function sheetXml(s) {
+  const rows=[];
+  if(s.summary) s.rows.forEach((row,i)=>rows.push(`<row r="${i+1}" ht="${i===0?26:21}" customHeight="1">${row.map((v,c)=>cell(i+1,c,v,i===0?3:typeof v==='number'?4:0)).join('')}</row>`));
+  else {
+    rows.push(`<row r="1" ht="26" customHeight="1">${s.groupHeaders?s.groupHeaders.map(g=>cell(1,g.start,g.label,3)).join(''):cell(1,0,s.title,3)}</row>`);
+    rows.push(`<row r="2" ht="27" customHeight="1">${s.blocks.map(b=>cell(2,b.start,b.r.id,s.styles[b.start])).join('')}</row>`);
+    rows.push(`<row r="3" ht="28" customHeight="1">${s.headers.map((v,c)=>cell(3,c,v,v?3:0)).join('')}</row>`);
+    for(let i=0;i<s.n;i++)rows.push(`<row r="${i+4}">${s.blocks.map(b=>i<b.rows.length?b.keys.map((k,j)=>cell(i+4,b.start+j,b.rows[i][k],4)).join(''):'').join('')}</row>`);
+  }
+  return xml(`<worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="${s.freeze}" topLeftCell="A${s.freeze+1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${s.widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${rows.join('')}</sheetData>${s.summary?`<autoFilter ref="A1:J${s.rows.length}"/>`:''}<mergeCells count="${s.merge.length}">${s.merge.map(r=>`<mergeCell ref="${r}"/>`).join('')}</mergeCells></worksheet>`);
+}
+const styles=xml(`<styleSheet xmlns="${ns}"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.##########"/></numFmts><fonts count="3"><font><sz val="11"/><color rgb="FF26323B"/><name val="Calibri"/></font><font><b/><sz val="18"/><color rgb="FF26323B"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF26323B"/><name val="Calibri"/></font></fonts><fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF0F2F4"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDCE7EF"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE2EBDD"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEDE4D9"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8">${[[0,0,0],[1,0,0],[0,0,0],[2,2,0],[0,0,164],[2,3,0],[2,4,0],[2,5,0]].map(([font,fill,num])=>`<xf numFmtId="${num}" fontId="${font}" fillId="${fill}" borderId="0" xfId="0" applyNumberFormat="1" applyFill="1" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`);
+function crc32(a){let c=-1;for(const b of a){c^=b;for(let j=0;j<8;j++)c=(c>>>1)^((c&1)?0xedb88320:0);}return (c^-1)>>>0;}
+async function zip(files){const enc=new TextEncoder(),parts=[],central=[];let offset=0;
+ for(const [name,text] of Object.entries(files)){const filename=enc.encode(name),data=enc.encode(text);let packed=data,method=0;try{if(typeof CompressionStream!=='undefined'){packed=new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());method=8;}}catch{}
+ const crc=crc32(data),head=new Uint8Array(30+filename.length),h=new DataView(head.buffer);h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(8,method,true);h.setUint32(14,crc,true);h.setUint32(18,packed.length,true);h.setUint32(22,data.length,true);h.setUint16(26,filename.length,true);head.set(filename,30);
+ const cd=new Uint8Array(46+filename.length),v=new DataView(cd.buffer);v.setUint32(0,0x02014b50,true);v.setUint16(4,20,true);v.setUint16(6,20,true);v.setUint16(10,method,true);v.setUint32(16,crc,true);v.setUint32(20,packed.length,true);v.setUint32(24,data.length,true);v.setUint16(28,filename.length,true);v.setUint32(42,offset,true);cd.set(filename,46);parts.push(head,packed);central.push(cd);offset+=head.length+packed.length;}
+ const size=central.reduce((s,a)=>s+a.length,0),end=new Uint8Array(22),v=new DataView(end.buffer);v.setUint32(0,0x06054b50,true);v.setUint16(8,central.length,true);v.setUint16(10,central.length,true);v.setUint32(12,size,true);v.setUint32(16,offset,true);return new Blob([...parts,...central,end],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+AK.exportExcel=async function(results,assign={},kind='raw'){
+ const sheets=makeSheets(results,assign,kind),files={};
+ files['[Content_Types].xml']=xml(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`);
+ const relns='http://schemas.openxmlformats.org/package/2006/relationships',type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
+ files['_rels/.rels']=xml(`<Relationships xmlns="${relns}"><Relationship Id="rId1" Type="${type}officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+ files['xl/workbook.xml']=xml(`<workbook xmlns="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s,i)=>`<sheet name="${esc(s.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`);
+ files['xl/_rels/workbook.xml.rels']=xml(`<Relationships xmlns="${relns}">${sheets.map((_,i)=>`<Relationship Id="rId${i+1}" Type="${type}worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')}<Relationship Id="styles" Type="${type}styles" Target="styles.xml"/></Relationships>`);
+ files['xl/styles.xml']=styles;sheets.forEach((s,i)=>files[`xl/worksheets/sheet${i+1}.xml`]=sheetXml(s));return zip(files);
+};
+})(window.AK=window.AK||{});
+
+

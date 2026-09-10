@@ -201,35 +201,20 @@ function originalRows(results, assign) {
   return out;
 }
 
-AK.originalRows = originalRows;
-
-function exportDataRows(results, assign, kind, layout = 'wide', byGroup = true) {
-  const groupOf = r => (assign && assign[r.id] || '').trim();
-  const ordered = results.slice();
-  if (byGroup) ordered.sort((a, b) => {
-    const ga = groupOf(a), gb = groupOf(b);
-    if (!ga && gb) return 1;
-    if (ga && !gb) return -1;
-    return ga.localeCompare(gb, undefined, { numeric: true });
-  });
-  if (layout === 'stacked') return kind === 'raw'
-    ? originalRows(ordered, assign) : allTraceRows(ordered, assign);
-  const grouped = byGroup && ordered.some(r => groupOf(r));
-  const columns = ordered.map(r => {
-    const rows = kind === 'raw' ? originalRows([r]) : traceRows(r);
-    const keys = rows.length ? Object.keys(rows[0]).filter(k => k !== 'Animal' && k !== 'Group') : [];
-    // Arrays in a shared row are independent observations, not aligned times.
-    const prefix = grouped ? `${groupOf(r) || 'Ungrouped'} / ${r.id}` : r.id;
-    return { rows, keys, prefix };
-  });
-  const n = Math.max(0, ...columns.map(c => c.rows.length));
-  return Array.from({ length: n }, (_, i) => {
-    const row = {};
-    for (const c of columns) for (const key of c.keys) {
-      row[`${c.prefix} / ${key}`] = i < c.rows.length ? c.rows[i][key] : null;
+// The supplied Day 1 reference contains exactly this prefix per animal.
+// Require enough data rather than silently padding or repeating measurements.
+function referenceRows(results, frameCount = 11673) {
+  for (const R of results) {
+    if (R.originalSFI.length < frameCount) {
+      throw new Error(`${R.id} has ${R.originalSFI.length} frames; the Day 1 reference needs ${frameCount}. Choose the matching full recording.`);
     }
+  }
+  return Array.from({ length: frameCount }, (_, i) => {
+    const row = {};
+    for (const R of results) row[R.id] = R.originalSFI[i];
     return row;
   });
 }
-AK.exportDataRows = exportDataRows;
+AK.originalRows = originalRows;
+AK.referenceRows = referenceRows;
 })(window.AK = window.AK || {});

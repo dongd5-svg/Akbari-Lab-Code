@@ -187,49 +187,4 @@ AK.summaryRows = summaryRows;
 AK.toCSV = toCSV;
 AK.traceRows = traceRows;
 AK.allTraceRows = allTraceRows;
-
-// Original camera-frame values: no cleaning, interpolation or normalisation.
-function originalRows(results, assign) {
-  const out = [];
-  for (const R of results) {
-    const group = assign && (assign[R.id] || '').trim();
-    for (let i = 0; i < R.originalSFI.length; i++) {
-      out.push({ Animal: R.id, ...(group ? { Group: group } : {}),
-        Time_min: R.originalTime[i], CBF_SFI: R.originalSFI[i] });
-    }
-  }
-  return out;
-}
-
-AK.originalRows = originalRows;
-
-function exportDataRows(results, assign, kind, layout = 'wide', byGroup = true) {
-  const groupOf = r => (assign && assign[r.id] || '').trim();
-  const ordered = results.slice();
-  if (byGroup) ordered.sort((a, b) => {
-    const ga = groupOf(a), gb = groupOf(b);
-    if (!ga && gb) return 1;
-    if (ga && !gb) return -1;
-    return ga.localeCompare(gb, undefined, { numeric: true });
-  });
-  if (layout === 'stacked') return kind === 'raw'
-    ? originalRows(ordered, assign) : allTraceRows(ordered, assign);
-  const grouped = byGroup && ordered.some(r => groupOf(r));
-  const columns = ordered.map(r => {
-    const rows = kind === 'raw' ? originalRows([r]) : traceRows(r);
-    const keys = rows.length ? Object.keys(rows[0]).filter(k => k !== 'Animal' && k !== 'Group') : [];
-    // Arrays in a shared row are independent observations, not aligned times.
-    const prefix = grouped ? `${groupOf(r) || 'Ungrouped'} / ${r.id}` : r.id;
-    return { rows, keys, prefix };
-  });
-  const n = Math.max(0, ...columns.map(c => c.rows.length));
-  return Array.from({ length: n }, (_, i) => {
-    const row = {};
-    for (const c of columns) for (const key of c.keys) {
-      row[`${c.prefix} / ${key}`] = i < c.rows.length ? c.rows[i][key] : null;
-    }
-    return row;
-  });
-}
-AK.exportDataRows = exportDataRows;
 })(window.AK = window.AK || {});

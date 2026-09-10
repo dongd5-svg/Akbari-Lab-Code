@@ -558,8 +558,7 @@ $('dlPngHi').onclick = async () => {
 $('dlCsv').onclick = () =>
   save(new Blob([toCSV(summaryRows(state.results, state.assign))], { type: 'text/csv' }), 'summary.csv');
 
-$('dlData').onclick = async () => {
-  if (document.querySelector('input[name="exportFormat"]:checked').value === 'xlsx') return downloadExcel('raw', $('dlData'));
+$('dlData').onclick = () => {
   try {
     const layout = document.querySelector('input[name="exportLayout"]:checked').value;
     const rows = AK.exportDataRows(state.results, state.assign, 'raw', layout, $('exportByGroup').checked);
@@ -572,33 +571,13 @@ $('dlData').onclick = async () => {
   }
 };
 
-$('dlProcessed').onclick = async () => {
-  if (document.querySelector('input[name="exportFormat"]:checked').value === 'xlsx') return downloadExcel('processed', $('dlProcessed'));
+$('dlProcessed').onclick = () => {
   const layout = document.querySelector('input[name="exportLayout"]:checked').value;
   const rows = AK.exportDataRows(state.results, state.assign, 'processed', layout, $('exportByGroup').checked);
   if (!rows.length) return;
   const prefix = state.results.length === 1 ? state.results[0].id : 'all_animals';
   save(new Blob([toCSV(rows)], { type: 'text/csv' }), `${prefix}_processed_${layout}.csv`);
 };
-
-async function downloadExcel(kind, button) {
-  if (!state.results.length) return;
-  const label=button.textContent;
-  button.disabled=true; button.textContent='Preparing workbook…';
-  try {
-    await new Promise(resolve=>setTimeout(resolve,30));
-    const blob=await AK.exportExcel(state.results,state.assign,kind);
-    save(blob,`${state.results.length===1?state.results[0].id:'all_animals'}_${kind}.xlsx`);
-  } catch(err) { note('resultMsgs','e',esc(err.message)); }
-  finally {button.disabled=false;button.textContent=label;}
-}
-document.querySelectorAll('input[name="exportFormat"]').forEach(input=>{
-  input.onchange=()=>{
-    const csv=input.value==='csv'&&input.checked;
-    $('csvLayout').classList.toggle('hide',!csv);
-    $('excelHint').classList.toggle('hide',csv);
-  };
-});
 
 $('dlPng').onclick = () => {
   if (!state.charts.length) return;

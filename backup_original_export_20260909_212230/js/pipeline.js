@@ -207,8 +207,6 @@ function analyze(lsi, sfdi, eventTime, opt = {}) {
   const cbf = prepareCBF(lsi.time, lsi.sfi, eventTime, o);
 
   const R = {
-    originalTime: Float64Array.from(lsi.time),
-    originalSFI: Float64Array.from(lsi.sfi),
     hasSFDI: false,
     time: cbf.CBFtime,
     CBFraw: cbf.CBFraw,
